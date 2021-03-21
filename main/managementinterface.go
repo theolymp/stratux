@@ -300,16 +300,8 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 					switch key {
 					case "DarkMode":
 						globalSettings.DarkMode = val.(bool)
-					case "UAT_Enabled":
-						globalSettings.UAT_Enabled = val.(bool)
-					case "ES_Enabled":
-						globalSettings.ES_Enabled = val.(bool)
-					case "OGN_Enabled":
-						globalSettings.OGN_Enabled = val.(bool)
 					case "Ping_Enabled":
 						globalSettings.Ping_Enabled = val.(bool)
-					case "GPS_Enabled":
-						globalSettings.GPS_Enabled = val.(bool)
 					case "IMU_Sensor_Enabled":
 						globalSettings.IMU_Sensor_Enabled = val.(bool)
 						if !globalSettings.IMU_Sensor_Enabled && globalStatus.IMUConnected {
@@ -342,8 +334,6 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 							myIMUReader.Close()
 							globalStatus.IMUConnected = false // Force a restart of the IMU reader
 						}
-					case "PPM":
-						globalSettings.PPM = int(val.(float64))
 					case "AltitudeOffset":
 						globalSettings.AltitudeOffset = int(val.(float64))
 					case "RadarLimits":
@@ -352,24 +342,6 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 					case "RadarRange":
 						globalSettings.RadarRange = int(val.(float64))
 						radarUpdate.SendJSON(globalSettings)
-					case "Baud":
-						if globalSettings.SerialOutputs != nil {
-							for dev, serialOut := range globalSettings.SerialOutputs {
-								newBaud := int(val.(float64))
-								if newBaud == serialOut.Baud { // Same baud rate. No change.
-									continue
-								}
-								log.Printf("changing %s baud rate from %d to %d.\n", dev, serialOut.Baud, newBaud)
-								serialOut.Baud = newBaud
-								// Close the port if it is open.
-								if serialOut.serialPort != nil {
-									log.Printf("closing %s for baud rate change.\n", dev)
-									serialOut.serialPort.Close()
-									serialOut.serialPort = nil
-								}
-								globalSettings.SerialOutputs[dev] = serialOut
-							}
-						}
 					case "WatchList":
 						globalSettings.WatchList = val.(string)
 					case "GLimits":

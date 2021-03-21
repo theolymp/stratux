@@ -116,9 +116,10 @@ func pingNetworkRepeater() {
 			for scanStderr.Scan() {
 				m := Dump1090TermMessage{Text: scanStderr.Text(), Source: "stderr"}
 				logDump1090TermMessage(m)
-				if shutdownES != true {
-					shutdownES = true
-				}
+				// TODO: devmanager
+				//if shutdownES != true {
+				//	shutdownES = true
+				//}
 			}
 			if err := scanStderr.Err(); err != nil {
 				log.Printf("scanStderr error: %s\n", err)

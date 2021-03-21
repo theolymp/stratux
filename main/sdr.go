@@ -13,46 +13,58 @@ import (
 	"bufio"
 	"log"
 	"os/exec"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"syscall"
 	"time"
 
 	"../godump978"
 	rtl "github.com/jpoirier/gortlsdr"
 )
 
+type SdrDevice interface {
+	GetDevPath() string
+	GetDeviceConfig() SdrDeviceConfig
+	OnConfigUpdate(cfg SdrDeviceConfig)
+	Shutdown()
+}
+
 // Device holds per dongle values and attributes
-type Device struct {
+type SdrDeviceData struct {
 	dev     *rtl.Context
 	wg      *sync.WaitGroup
 	closeCh chan int
-	indexID int
-	ppm     int
-	serial  string
-	idSet   bool
+	DeviceConfig SdrDeviceConfig
+}
+
+func (dev *SdrDeviceData) GetDevPath() string {
+	return dev.DeviceConfig.DevPath
+}
+func (dev *SdrDeviceData) GetDeviceConfig() SdrDeviceConfig {
+	return dev.DeviceConfig
+}
+func (dev *SdrDeviceData) OnConfigUpdate(cfg SdrDeviceConfig) {
+	// For simplicity, we just shut the device down and re-detect it
+	dev.Shutdown()
+	sdrWatcher.onSdrAvailable(cfg)
+}
+func (dev *SdrDeviceData) Shutdown() {
+	// Implemented by subtypes
 }
 
 // UAT is a 978 MHz device
-type UAT Device
+type UAT struct {
+	SdrDeviceData
+} 
 
 // ES is a 1090 MHz device
-type ES Device
+type ES struct {
+	SdrDeviceData
+}
 
 // OGN is an 868 MHz device
-type OGN Device
-
-// UATDev holds a 978 MHz dongle object
-var UATDev *UAT
-
-// ESDev holds a 1090 MHz dongle object
-var ESDev *ES
-
-// OGNDev holds an 868 MHz dongle object
-var OGNDev *OGN
+type OGN struct {
+	SdrDeviceData
+}
 
 type Dump1090TermMessage struct {
 	Text   string
@@ -62,7 +74,7 @@ type Dump1090TermMessage struct {
 func (e *ES) read() {
 	defer e.wg.Done()
 	log.Println("Entered ES read() ...")
-	cmd := exec.Command("/usr/bin/dump1090", "--oversample", "--net-stratux-port", "30006",  "--net", "--device-index", strconv.Itoa(e.indexID), "--ppm", strconv.Itoa(e.ppm))
+	cmd := exec.Command("/usr/bin/dump1090", "--oversample", "--net-stratux-port", "30006",  "--net", "--device", e.DeviceConfig.Serial, "--ppm", string(e.DeviceConfig.PPM))
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -70,7 +82,6 @@ func (e *ES) read() {
 	if err != nil {
 		log.Printf("Error executing /usr/bin/dump1090: %s\n", err)
 		// don't return immediately, use the proper shutdown procedure
-		shutdownES = true
 		for {
 			select {
 			case <-e.closeCh:
@@ -158,9 +169,6 @@ func (u *UAT) read() {
 				if globalSettings.DEBUG {
 					log.Printf("\tReadSync Failed - error: %s\n", err)
 				}
-				if shutdownUAT != true {
-					shutdownUAT = true
-				}
 				break
 			}
 
@@ -178,7 +186,7 @@ func (u *UAT) read() {
 func (f *OGN) read() {
 	defer f.wg.Done()
 	log.Println("Entered OGN read() ...")
-	cmd := exec.Command("/usr/bin/ogn-rx-eu", "-d", strconv.Itoa(f.indexID), "-p", strconv.Itoa(f.ppm), "-L/var/log/")
+	cmd := exec.Command("/usr/bin/ogn-rx-eu", "-s", f.DeviceConfig.Serial, "-p", string(f.DeviceConfig.PPM), "-L/var/log/")
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	autoRestart := true // automatically restart crashing child process
@@ -187,7 +195,7 @@ func (f *OGN) read() {
 	if err != nil {
 		log.Printf("OGN: Error executing ogn-rx-eu: %s\n", err)
 		// don't return immediately, use the proper shutdown procedure
-		shutdownOGN = true
+		autoRestart = false
 		for {
 			select {
 			case <-f.closeCh:
@@ -263,43 +271,12 @@ func (f *OGN) read() {
 	// goroutines...
 	close(done)
 
-	if autoRestart && !shutdownOGN{
+	if autoRestart {
 		time.Sleep(5 * time.Second)
 		log.Println("OGN: restarting crashed ogn-rx-eu")
 		f.wg.Add(1)
 		go f.read()
 	}
-}
-
-func getPPM(serial string) int {
-	r, err := regexp.Compile("str?a?t?u?x:\\d+:?(-?\\d*)")
-	if err != nil {
-		return globalSettings.PPM
-	}
-
-	arr := r.FindStringSubmatch(serial)
-	if arr == nil {
-		return globalSettings.PPM
-	}
-
-	ppm, err := strconv.Atoi(arr[1])
-	if err != nil {
-		return globalSettings.PPM
-	}
-
-	return ppm
-}
-
-func (e *ES) sdrConfig() (err error) {
-	e.ppm = getPPM(e.serial)
-	log.Printf("===== ES Device Serial: %s PPM %d =====\n", e.serial, e.ppm)
-	return
-}
-
-func (f *OGN) sdrConfig() (err error) {
-	f.ppm = getPPM(f.serial)
-	log.Printf("===== OGN Device Serial: %s PPM %d =====\n", f.serial, f.ppm)
-	return
 }
 
 // 978 UAT configuration settings
@@ -313,10 +290,15 @@ const (
 )
 
 func (u *UAT) sdrConfig() (err error) {
-	log.Printf("===== UAT Device Name  : %s =====\n", rtl.GetDeviceName(u.indexID))
-	log.Printf("===== UAT Device Serial: %s=====\n", u.serial)
+	devId, err := rtl.GetIndexBySerial(u.DeviceConfig.Serial)
+	if err != nil {
+		log.Printf("UAT GetIndexBySerial failed...")
+		return
+	}
+	log.Printf("===== UAT Device Name  : %s =====\n", rtl.GetDeviceName(devId))
+	log.Printf("===== UAT Device Serial: %s=====\n", u.DeviceConfig.Identifier)
 
-	if u.dev, err = rtl.Open(u.indexID); err != nil {
+	if u.dev, err = rtl.Open(devId); err != nil {
 		log.Printf("\tUAT Open Failed...\n")
 		return
 	}
@@ -402,14 +384,13 @@ func (u *UAT) sdrConfig() (err error) {
 	freqCorr := u.dev.GetFreqCorrection()
 	log.Printf("\tGetFreqCorrection: %d\n", freqCorr)
 
-	u.ppm = getPPM(u.serial)
-	err = u.dev.SetFreqCorrection(u.ppm)
+	err = u.dev.SetFreqCorrection(u.DeviceConfig.PPM)
 	if err != nil {
 		u.dev.Close()
-		log.Printf("\tSetFreqCorrection %d Failed, error: %s\n", u.ppm, err)
+		log.Printf("\tSetFreqCorrection %d Failed, error: %s\n", u.DeviceConfig.PPM, err)
 		return
 	}
-	log.Printf("\tSetFreqCorrection %d Successful\n", u.ppm)
+	log.Printf("\tSetFreqCorrection %d Successful\n", u.DeviceConfig.PPM)
 
 	return
 }
@@ -453,7 +434,7 @@ func (f *OGN) writeID() error {
 	return f.dev.SetHwInfo(info)
 }
 
-func (u *UAT) shutdown() {
+func (u *UAT) Shutdown() {
 	log.Println("Entered UAT shutdown() ...")
 	close(u.closeCh) // signal to shutdown
 	log.Println("UAT shutdown(): calling u.wg.Wait() ...")
@@ -464,7 +445,7 @@ func (u *UAT) shutdown() {
 	log.Println("UAT shutdown() complete ...")
 }
 
-func (e *ES) shutdown() {
+func (e *ES) Shutdown() {
 	log.Println("Entered ES shutdown() ...")
 	close(e.closeCh) // signal to shutdown
 	log.Println("ES shutdown(): calling e.wg.Wait() ...")
@@ -472,7 +453,7 @@ func (e *ES) shutdown() {
 	log.Println("ES shutdown() complete ...")
 }
 
-func (f *OGN) shutdown() {
+func (f *OGN) Shutdown() {
 	log.Println("Entered OGN shutdown() ...")
 	close(f.closeCh) // signal to shutdown
 	log.Println("signal shutdown(): calling f.wg.Wait() ...")
@@ -480,256 +461,62 @@ func (f *OGN) shutdown() {
 	log.Println("signal shutdown() complete ...")
 }
 
-var sdrShutdown bool
 
-func sdrKill() {
-	// Send signal to shutdown to sdrWatcher().
-	sdrShutdown = true
-	// Spin until all devices have been de-initialized.
-	for UATDev != nil || ESDev != nil || OGNDev != nil {
-		time.Sleep(1 * time.Second)
-	}
-}
-
-func reCompile(s string) *regexp.Regexp {
-	// note , compile returns a nil pointer on error
-	r, _ := regexp.Compile(s)
-	return r
-}
-
-type regexUAT regexp.Regexp
-type regexES regexp.Regexp
-type regexOGN regexp.Regexp
-
-var rUAT = (*regexUAT)(reCompile("str?a?t?u?x:978"))
-var rES = (*regexES)(reCompile("str?a?t?u?x:1090"))
-var rOGN = (*regexES)(reCompile("str?a?t?u?x:868"))
-
-func (r *regexUAT) hasID(serial string) bool {
-	if r == nil {
-		return strings.HasPrefix(serial, "stratux:978")
-	}
-	return (*regexp.Regexp)(r).MatchString(serial)
-}
-
-func (r *regexES) hasID(serial string) bool {
-	if r == nil {
-		return strings.HasPrefix(serial, "stratux:1090")
-	}
-	return (*regexp.Regexp)(r).MatchString(serial)
-}
-
-func (r *regexOGN) hasID(serial string) bool {
-	if r == nil {
-		return strings.HasPrefix(serial, "stratux:868")
-	}
-	return (*regexp.Regexp)(r).MatchString(serial)
-}
-
-func createUATDev(id int, serial string, idSet bool) error {
-	UATDev = &UAT{indexID: id, serial: serial}
+func createUATDev(cfg SdrDeviceConfig) (*UAT, error) {
+	UATDev := &UAT{SdrDeviceData {DeviceConfig: cfg}}
 	if err := UATDev.sdrConfig(); err != nil {
 		log.Printf("UATDev.sdrConfig() failed: %s\n", err)
 		UATDev = nil
-		return err
+		return nil, err
 	}
 	UATDev.wg = &sync.WaitGroup{}
-	UATDev.idSet = idSet
 	UATDev.closeCh = make(chan int)
 	UATDev.wg.Add(1)
 	go UATDev.read()
-	return nil
+	DeviceConfigManager.onSdrDeviceConnected(UATDev)
+	return UATDev, nil
 }
 
-func createESDev(id int, serial string, idSet bool) error {
-	ESDev = &ES{indexID: id, serial: serial}
-	if err := ESDev.sdrConfig(); err != nil {
-		log.Printf("ESDev.sdrConfig() failed: %s\n", err)
-		ESDev = nil
-		return err
-	}
+func createESDev(cfg SdrDeviceConfig) (*ES, error) {
+	ESDev := &ES{SdrDeviceData {DeviceConfig: cfg}}
 	ESDev.wg = &sync.WaitGroup{}
-	ESDev.idSet = idSet
 	ESDev.closeCh = make(chan int)
 	ESDev.wg.Add(1)
 	go ESDev.read()
-	return nil
+	DeviceConfigManager.onSdrDeviceConnected(ESDev)
+	return ESDev, nil
 }
 
-func createOGNDev(id int, serial string, idSet bool) error {
-	OGNDev = &OGN{indexID: id, serial: serial}
-	if err := OGNDev.sdrConfig(); err != nil {
-		log.Printf("OGNDev.sdrConfig() failed: %s\n", err)
-		OGNDev = nil
-		return err
-	}
+func createOGNDev(cfg SdrDeviceConfig) (*OGN, error) {
+	OGNDev := &OGN{SdrDeviceData {DeviceConfig: cfg}}
 	OGNDev.wg = &sync.WaitGroup{}
-	OGNDev.idSet = idSet
 	OGNDev.closeCh = make(chan int)
 	OGNDev.wg.Add(1)
 	go OGNDev.read()
-	return nil
+	DeviceConfigManager.onSdrDeviceConnected(OGNDev)
+	return OGNDev, nil
 }
 
-func configDevices(count int, esEnabled, uatEnabled, ognEnabled bool) {
-	// once the tagged dongles have been assigned, explicitly range over
-	// the remaining IDs and assign them to any anonymous dongles
-	unusedIDs := make(map[int]string)
+type SdrWatcher struct {
+}
+var sdrWatcher SdrWatcher
 
-	// loop 1: assign tagged dongles
-	for i := 0; i < count; i++ {
-		_, _, s, err := rtl.GetDeviceUsbStrings(i)
-		if err == nil {
-			//FIXME: Trim NULL from the serial. Best done in gortlsdr, but putting this here for now.
-			s = strings.Trim(s, "\x00")
-			// no need to check if createXDev returned an error; if it
-			// failed to config the error is logged and we can ignore
-			// it here so it doesn't get queued up again
-			if uatEnabled && UATDev == nil && rUAT.hasID(s) {
-				createUATDev(i, s, true)
-			} else if esEnabled && ESDev == nil && rES.hasID(s) {
-				createESDev(i, s, true)
-			} else if ognEnabled && OGNDev == nil && rOGN.hasID(s) {
-				createOGNDev(i, s, true)
-			} else {
-				unusedIDs[i] = s
-			}
-		} else {
-			log.Printf("rtl.GetDeviceUsbStrings id %d: %s\n", i, err)
-		}
-	}
-
-	// loop 2: assign anonymous dongles but sanity check the serial ids
-	// so we don't cross config for dual assigned dongles. e.g. when two
-	// dongles are set to the same stratux id and the unconsumed,
-	// non-anonymous, dongle makes it to this loop.
-	for i, s := range unusedIDs {
-		if uatEnabled && !globalStatus.UATRadio_connected && UATDev == nil && !rES.hasID(s) && !rOGN.hasID(s) {
-			createUATDev(i, s, false)
-		} else if esEnabled && ESDev == nil && !rUAT.hasID(s) && !rOGN.hasID(s) {
-			createESDev(i, s, false)
-		} else if ognEnabled && OGNDev == nil {
-			createOGNDev(i, s, false)
-		}
+func (w *SdrWatcher) onSdrAvailable(cfg SdrDeviceConfig) {
+	if cfg.CapsConfigured & CAP_1090ES > 0 {
+		createESDev(cfg)
+	} else if cfg.CapsConfigured & CAP_UAT > 0 {
+		createUATDev(cfg)
+	} else if cfg.CapsConfigured & CAP_OGN > 0 {
+		createOGNDev(cfg)
 	}
 }
 
-// to keep our sync primitives synchronized, only exit a read
-// method's goroutine via the close flag channel check, to
-// include catastrophic dongle failures
-var shutdownES bool
-var shutdownUAT bool
-var shutdownOGN bool
+// Not needed, interface function
+func (w *SdrWatcher) onSerialAvailable(cfg SerialDeviceConfig) {}
 
-// Watch for config/device changes.
-func sdrWatcher() {
-	prevCount := 0
-	prevUATEnabled := false
-	prevESEnabled := false
-	prevOGNEnabled := false
-
-	// Get the system (RPi) uptime.
-	info := syscall.Sysinfo_t{}
-	err := syscall.Sysinfo(&info)
-	if err == nil {
-		// Got system uptime. Delay if and only if the system uptime is less than 120 seconds. This should be plenty of time
-		//  for the RPi to come up and start Stratux. Keeps the delay from happening if the daemon is auto-restarted from systemd.
-		if info.Uptime < 120 {
-			time.Sleep(90 * time.Second)
-		} else if globalSettings.DeveloperMode {
-			// Throw a "critical error" if developer mode is enabled. Alerts the developer that the daemon was restarted (possibly)
-			//  unexpectedly.
-			addSingleSystemErrorf("restart-warn", "System uptime %d seconds. Daemon was restarted.\n", info.Uptime)
-		}
-	}
-
-	for {
-		time.Sleep(1 * time.Second)
-		if sdrShutdown {
-			if UATDev != nil {
-				UATDev.shutdown()
-				UATDev = nil
-			}
-			if ESDev != nil {
-				ESDev.shutdown()
-				ESDev = nil
-			}
-			if OGNDev != nil {
-				OGNDev.shutdown()
-				OGNDev = nil
-			}
-			return
-		}
-
-		// true when a ReadSync call fails
-		if shutdownUAT {
-			if UATDev != nil {
-				UATDev.shutdown()
-				UATDev = nil
-			}
-			shutdownUAT = false
-		}
-		// true when we get stderr output
-		if shutdownES {
-			if ESDev != nil {
-				ESDev.shutdown()
-				ESDev = nil
-			}
-			shutdownES = false
-		}
-		// true when we get stderr output
-		if shutdownOGN {
-			if OGNDev != nil {
-				OGNDev.shutdown()
-				OGNDev = nil
-			}
-			shutdownOGN = false
-		}
-
-		// capture current state
-		esEnabled := globalSettings.ES_Enabled
-		uatEnabled := globalSettings.UAT_Enabled
-		ognEnabled := globalSettings.OGN_Enabled
-		count := rtl.GetDeviceCount()
-		interfaceCount := count
-		if globalStatus.UATRadio_connected {
-			interfaceCount++
-		}
-		atomic.StoreUint32(&globalStatus.Devices, uint32(interfaceCount))
-
-		// support up to two dongles
-		if count > 3 {
-			count = 3
-		}
-
-		if count == prevCount && prevESEnabled == esEnabled && prevUATEnabled == uatEnabled && prevOGNEnabled == ognEnabled {
-			continue
-		}
-
-		// the device count or the global settings have changed, reconfig
-		if UATDev != nil {
-			UATDev.shutdown()
-			UATDev = nil
-		}
-		if ESDev != nil {
-			ESDev.shutdown()
-			ESDev = nil
-		}
-		if OGNDev != nil {
-			OGNDev.shutdown()
-			OGNDev = nil
-		}
-		configDevices(count, esEnabled, uatEnabled, ognEnabled)
-
-		prevCount = count
-		prevUATEnabled = uatEnabled
-		prevESEnabled = esEnabled
-		prevOGNEnabled = ognEnabled
-	}
-}
 
 func sdrInit() {
-	go sdrWatcher()
+	DeviceConfigManager.AddDeviceEventListener(&sdrWatcher)
 	go uatReader()
 	go godump978.ProcessDataFromChannel()
 }
