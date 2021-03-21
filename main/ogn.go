@@ -71,7 +71,7 @@ var ognExitChan chan bool = make(chan bool, 1)
 func ognListen() {
 	//go predTest()
 	for {
-		if !globalSettings.OGN_Enabled || OGNDev == nil {
+		if !DeviceConfigManager.HasEnabledSdr(CAP_OGN) {
 			// wait until OGN is enabled
 			time.Sleep(1 * time.Second)
 			continue
@@ -106,7 +106,7 @@ func ognListen() {
 
 		pgrmzTimer := time.NewTicker(100 * time.Millisecond)
 
-		loop: for globalSettings.OGN_Enabled {
+		loop: for DeviceConfigManager.HasEnabledSdr(CAP_OGN) {
 			select {
 			case data := <- ognOutgoingMsgChan:
 				//fmt.Printf(data)

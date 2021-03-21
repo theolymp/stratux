@@ -558,12 +558,12 @@ func makeStratuxStatus() []byte {
 	}
 
 	// Valid/Enabled: UAT portion.
-	if globalSettings.UAT_Enabled {
+	if DeviceConfigManager.HasEnabledSdr(CAP_UAT) {
 		msg[13] = msg[13] | (1 << 5)
 	}
 
 	// Valid/Enabled: ES portion.
-	if globalSettings.ES_Enabled {
+	if DeviceConfigManager.HasEnabledSdr(CAP_1090ES) {
 		msg[13] = msg[13] | (1 << 6)
 	}
 
@@ -573,7 +573,7 @@ func makeStratuxStatus() []byte {
 	}
 
 	// Valid/Enabled: GPS Enabled portion.
-	if globalSettings.GPS_Enabled {
+	if DeviceConfigManager.HasEnabledSerial(CAP_NMEA_IN) {
 		msg[13] = msg[13] | (1 << 7)
 	}
 
@@ -1162,15 +1162,11 @@ func getProductNameFromId(product_id int) string {
 
 type settings struct {
 	DarkMode             bool
-	UAT_Enabled          bool
-	ES_Enabled           bool
-	OGN_Enabled        bool
 	Ping_Enabled         bool
-	GPS_Enabled          bool
+	Devices              DeviceConfig
 	BMP_Sensor_Enabled   bool
 	IMU_Sensor_Enabled   bool
 	NetworkOutputs       []networkConnection
-	SerialOutputs        map[string]serialConnection
 	DisplayTrafficSource bool
 	DEBUG                bool
 	ReplayLog            bool
@@ -1179,7 +1175,6 @@ type settings struct {
 	IMUMapping           [2]int     // Map from aircraft axis to sensor axis: accelerometer
 	SensorQuaternion     [4]float64 // Quaternion mapping from sensor frame to aircraft frame
 	C, D                 [3]float64 // IMU Accel, Gyro zero bias
-	PPM                  int
 	AltitudeOffset       int
 	OwnshipModeS         string
 	WatchList            string
@@ -1273,10 +1268,6 @@ var globalStatus status
 
 func defaultSettings() {
 	globalSettings.DarkMode = false
-	globalSettings.UAT_Enabled = false
-	globalSettings.ES_Enabled = true
-	globalSettings.OGN_Enabled = true
-	globalSettings.GPS_Enabled = true
 	globalSettings.IMU_Sensor_Enabled = true
 	globalSettings.BMP_Sensor_Enabled = true
 	//FIXME: Need to change format below.
@@ -1312,22 +1303,14 @@ func defaultSettings() {
 }
 
 func readSettings() {
-	fd, err := os.Open(configLocation)
-	if err != nil {
-		log.Printf("can't read settings %s: %s\n", configLocation, err.Error())
-		defaultSettings()
-		return
-	}
-	defer fd.Close()
-	buf := make([]byte, 4096)
-	count, err := fd.Read(buf)
+	buf, err := ioutil.ReadFile(configLocation)
 	if err != nil {
 		log.Printf("can't read settings %s: %s\n", configLocation, err.Error())
 		defaultSettings()
 		return
 	}
 	var newSettings settings
-	err = json.Unmarshal(buf[0:count], &newSettings)
+	err = json.Unmarshal(buf, &newSettings)
 	if err != nil {
 		log.Printf("can't read settings %s: %s\n", configLocation, err.Error())
 		defaultSettings()
@@ -1417,7 +1400,7 @@ func printStats() {
 		log.Printf(" - CPUTemp=%.02f [%.02f - %.02f] deg C, MemStats.Alloc=%s, MemStats.Sys=%s, totalNetworkMessagesSent=%s\n", globalStatus.CPUTemp, globalStatus.CPUTempMin, globalStatus.CPUTempMax, humanize.Bytes(uint64(memstats.Alloc)), humanize.Bytes(uint64(memstats.Sys)), humanize.Comma(int64(totalNetworkMessagesSent)))
 		log.Printf(" - UAT/min %s/%s [maxSS=%.02f%%], ES/min %s/%s, Total traffic targets tracked=%s", humanize.Comma(int64(globalStatus.UAT_messages_last_minute)), humanize.Comma(int64(globalStatus.UAT_messages_max)), float64(maxSignalStrength)/10.0, humanize.Comma(int64(globalStatus.ES_messages_last_minute)), humanize.Comma(int64(globalStatus.ES_messages_max)), humanize.Comma(int64(len(seenTraffic))))
 		log.Printf(" - Network data messages sent: %d total, %d nonqueueable.  Network data bytes sent: %d total, %d nonqueueable.\n", globalStatus.NetworkDataMessagesSent, globalStatus.NetworkDataMessagesSentNonqueueable, globalStatus.NetworkDataBytesSent, globalStatus.NetworkDataBytesSentNonqueueable)
-		if globalSettings.GPS_Enabled {
+		if DeviceConfigManager.HasEnabledSerial(CAP_NMEA_IN) {
 			log.Printf(" - Last GPS fix: %s, GPS solution type: %d using %d satellites (%d/%d seen/tracked), NACp: %d, est accuracy %.02f m\n", stratuxClock.HumanizeTime(mySituation.GPSLastFixLocalTime), mySituation.GPSFixQuality, mySituation.GPSSatellites, mySituation.GPSSatellitesSeen, mySituation.GPSSatellitesTracked, mySituation.GPSNACp, mySituation.GPSHorizontalAccuracy)
 			log.Printf(" - GPS vertical velocity: %.02f ft/sec; GPS vertical accuracy: %v m\n", mySituation.GPSVerticalSpeed, mySituation.GPSVerticalAccuracy)
 		}
@@ -1512,7 +1495,7 @@ var sigs = make(chan os.Signal, 1) // Signal catch channel (shutdown).
 // Graceful shutdown. Do everything except for kill the process.
 func gracefulShutdown() {
 	// Shut down SDRs.
-	sdrKill()
+	DeviceConfigManager.Shutdown()
 	pingKill()
 
 	// Shut down data logging.
@@ -1612,28 +1595,6 @@ func main() {
 	}
 	debugLogf = filepath.Join(logDirf, debugLogFile)
 	dataLogFilef = filepath.Join(logDirf, dataLogFile)
-	//FIXME: All of this should be removed by 08/01/2016.
-	// Check if Raspbian version is <8.0. Throw a warning if so.
-	vt, err := ioutil.ReadFile("/etc/debian_version")
-	if err == nil {
-		vtS := strings.Trim(string(vt), "\n")
-		vtF, err := strconv.ParseFloat(vtS, 32)
-		if err == nil {
-			if vtF < 8.0 {
-				if globalStatus.HardwareBuild == "FlightBox" {
-					addSingleSystemErrorf("deprecated-image", "You are running an old Stratux image that can't be updated fully and is now deprecated. Visit https://www.openflightsolutions.com/flightbox/image-update-required for further information.")
-				} else {
-					addSingleSystemErrorf("deprecated-image", "You are running an old Stratux image that can't be updated fully and is now deprecated. Visit http://stratux.me/ to update using the latest release image.")
-				}
-			} else {
-				// Running Jessie or better. Remove some old init.d files.
-				//  This made its way in here because /etc/init.d/stratux invokes the update script, which can't delete the init.d file.
-				os.Remove("/etc/init.d/stratux")
-				os.Remove("/etc/rc2.d/S01stratux")
-				os.Remove("/etc/rc6.d/K01stratux")
-			}
-		}
-	}
 
 	//	replayESFilename := flag.String("eslog", "none", "ES Log filename")
 	replayUATFilename := flag.String("uatlog", "none", "UAT Log filename")
@@ -1684,12 +1645,16 @@ func main() {
 
 	crcInit() // Initialize CRC16 table.
 
+	// Read settings.
+	readSettings()
+
+	initDeviceManager()
+
 	sdrInit()
 	pingInit()
 	initTraffic()
 
-	// Read settings.
-	readSettings()
+	go detectDevices()
 
 	// Disable replay logs when replaying - so that messages replay data isn't copied into the logs.
 	// Override after reading in the settings.

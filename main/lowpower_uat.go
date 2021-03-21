@@ -31,7 +31,8 @@ func initUATRadioSerial() error {
 		for {
 			<-watchTicker.C
 			// Watch for the radio or change in settings.
-			if !globalSettings.UAT_Enabled || globalStatus.UATRadio_connected {
+			// TODO: devicemanager
+			if /*!globalSettings.UAT_Enabled ||*/ globalStatus.UATRadio_connected {
 				// UAT not enabled or radio already set up. Continue.
 				continue
 			}

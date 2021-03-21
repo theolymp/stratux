@@ -1842,7 +1842,7 @@ func gpsSerialReader() {
 
 	i := 0 //debug monitor
 	scanner := bufio.NewScanner(serialPort)
-	for scanner.Scan() && globalStatus.GPS_connected && globalSettings.GPS_Enabled {
+	for scanner.Scan() && globalStatus.GPS_connected && DeviceConfigManager.HasEnabledSerial(CAP_NMEA_IN) {
 		i++
 		if globalSettings.DEBUG && i%100 == 0 {
 			log.Printf("gpsSerialReader() scanner loop iteration i=%d\n", i) // debug monitor
@@ -2039,7 +2039,7 @@ func gpsAttitudeSender() {
 			mySituation.muGPSPerformance.Unlock()
  		}
 
-		for !(globalSettings.IMU_Sensor_Enabled && globalStatus.IMUConnected) && (globalSettings.GPS_Enabled && globalStatus.GPS_connected) {
+		for !(globalSettings.IMU_Sensor_Enabled && globalStatus.IMUConnected) && DeviceConfigManager.HasEnabledSerial(CAP_NMEA_IN) {
 			<-timer.C
 
 			if !isGPSValid() || !calcGPSAttitude() {
@@ -2147,10 +2147,10 @@ func isTempPressValid() bool {
 
 func pollGPS() {
 	readyToInitGPS = true //TODO: Implement more robust method (channel control) to kill zombie serial readers
-	timer := time.NewTicker(4 * time.Second)
+	//timer := time.NewTicker(4 * time.Second)
 	go gpsAttitudeSender()
 	go ffAttitudeSender()
-	for {
+	/*for {
 		<-timer.C
 		// GPS enabled, was not connected previously?
 		if globalSettings.GPS_Enabled && !globalStatus.GPS_connected && readyToInitGPS { //TODO: Implement more robust method (channel control) to kill zombie serial readers
@@ -2159,7 +2159,7 @@ func pollGPS() {
 				go gpsSerialReader()
 			}
 		}
-	}
+	}*/
 }
 
 func initGPS() {

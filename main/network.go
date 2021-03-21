@@ -241,10 +241,10 @@ func networkOutWatcher() {
 // Monitor serial output channel, send to serial port.
 func serialOutWatcher() {
 	// Check every 30 seconds for a serial output device.
-	serialTicker := time.NewTicker(30 * time.Second)
+	//serialTicker := time.NewTicker(30 * time.Second)
 
 	//FIXME: This is temporary. Only one serial output device for each protocol for now.
-	serialDevs := []string{"/dev/serialout0", "/dev/serialout_nmea0"}
+	/*serialDevs := []string{"/dev/serialout0", "/dev/serialout_nmea0"}
 
 	for {
 		select {
@@ -306,7 +306,7 @@ func serialOutWatcher() {
 				}
 			}
 		}
-	}
+	}*/
 }
 
 // Returns the number of DHCP leases and prints queue lengths.
