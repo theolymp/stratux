@@ -13,6 +13,7 @@ import (
 	"bufio"
 	"log"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,7 +75,9 @@ type Dump1090TermMessage struct {
 func (e *ES) read() {
 	defer e.wg.Done()
 	log.Println("Entered ES read() ...")
-	cmd := exec.Command("/usr/bin/dump1090", "--oversample", "--net-stratux-port", "30006",  "--net", "--device", e.DeviceConfig.Serial, "--ppm", string(e.DeviceConfig.PPM))
+	port := getFreeTcpPort()
+
+	cmd := exec.Command("/usr/bin/dump1090", "--oversample", "--net-stratux-port", strconv.Itoa(int(port)),  "--net", "--device", e.DeviceConfig.Serial, "--ppm", string(e.DeviceConfig.PPM))
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -146,7 +149,11 @@ func (e *ES) read() {
 		}
 	}()
 
+	reader := NewDump1090Reader(port)
+	go reader.run()
+
 	cmd.Wait()
+	reader.stop()
 
 	// we get here if A) the dump1090 process died
 	// on its own or B) cmd.Process.Kill() was called
@@ -186,7 +193,17 @@ func (u *UAT) read() {
 func (f *OGN) read() {
 	defer f.wg.Done()
 	log.Println("Entered OGN read() ...")
-	cmd := exec.Command("/usr/bin/ogn-rx-eu", "-s", f.DeviceConfig.Serial, "-p", string(f.DeviceConfig.PPM), "-L/var/log/")
+	port := getFreeTcpPort()
+
+	// Check if http interface is already busy..
+	httpPort := 8082
+	if isPortListeningTcp(8082) {
+		httpPort = 0
+	}
+
+	cmd := exec.Command("/usr/bin/ogn-rx-eu", "-s", f.DeviceConfig.Serial, "-p", strconv.Itoa(f.DeviceConfig.PPM), "-P",
+		strconv.Itoa(int(port)), "-H", strconv.Itoa(httpPort), "-L/var/log/")
+
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	autoRestart := true // automatically restart crashing child process
@@ -260,9 +277,13 @@ func (f *OGN) read() {
 		}
 	}()
 
+	ognReader := NewOgnReader(port)
+	go ognReader.run()
+
 	cmd.Wait()
 
 	log.Println("OGN: ogn-rx-eu terminated...")
+	ognReader.stop()
 
 	// we get here if A) the ogn-rx-eu process died
 	// on its own or B) cmd.Process.Kill() was called

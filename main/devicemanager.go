@@ -1,12 +1,13 @@
 package main
 
-import(
+import (
 	"context"
 	"log"
-	"sync"
-	"strconv"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+
 	udev "github.com/jochenvg/go-udev"
 )
 

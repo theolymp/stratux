@@ -143,6 +143,32 @@ func getDHCPLeases() (map[string]string, error) {
 	return ret, nil
 }
 
+// Simply cycles throug ports 30200-30300, which are free on a default stratux installation.
+// So we assume that we will never need more than that during one run
+var currTcpPortOffset = uint16(0)
+func getFreeTcpPort() uint16 {
+	for {
+		currTcpPortOffset = (currTcpPortOffset + 1) % 100
+		port := 30200 + currTcpPortOffset
+		if !isPortListeningTcp(port) {
+			return port
+		}
+	}
+}
+
+func isPortListeningTcp(port uint16) bool {
+	addr := "127.0.0.1:" + strconv.Itoa(int(port))
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		// got a free one
+		return false
+	} else {
+		// aldready in use..
+		conn.Close()
+		return true
+	}
+}
+
 /*
 	isSleeping().
 	 Check if a client identifier 'ip:port' is in either a sleep or active state.

@@ -1640,6 +1640,8 @@ func main() {
 	ADSBTowerMutex = &sync.Mutex{}
 	msgLog = make([]msg, 0)
 
+	usage = du.NewDiskUsage("/")
+
 	// Start the management interface.
 	go managementInterface()
 

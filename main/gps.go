@@ -981,6 +981,10 @@ func calculateNavRate() float64 {
  		}
  	}
 
+	if len(tempSpeedTime) == 0 {
+		return 0
+	}
+
  	var halfwidth float64
  	dt_avg, valid := common.Mean(tempSpeedTime)
  	if valid && dt_avg > 0 {
@@ -1039,7 +1043,8 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		}
 		return false
 	}
-	ognPublishNmea(l)
+	// TODO: provide nmea to ogn
+	//ognPublishNmea(l)
 	x := strings.Split(l_valid, ",")
 
 	mySituation.GPSLastValidNMEAMessageTime = stratuxClock.Time

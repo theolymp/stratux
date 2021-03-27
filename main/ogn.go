@@ -10,13 +10,11 @@
 package main
 
 import (
-	"bufio"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"io/ioutil"
 	"log"
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -52,112 +50,89 @@ type OgnMessage struct {
 	Tx_enabled   bool
 }
 
+type OgnReader struct {
+	tcpReader *TcpLineReader
+	rxChan chan string
+	txChan chan string
+}
 
-
-func ognPublishNmea(nmea string) {
-	if globalStatus.OGN_connected {
-		if !strings.HasSuffix(nmea, "\r\n") {
-			nmea += "\r\n"
-		}
-		ognOutgoingMsgChan <- nmea
+func NewOgnReader(port uint16) *OgnReader {
+	return &OgnReader{
+		NewTcpLineReader(port),
+		make(chan string, 100),
+		make(chan string, 100),
 	}
 }
 
-var ognOutgoingMsgChan chan string = make(chan string, 100)
-var ognIncomingMsgChan chan string = make(chan string, 100)
-var ognExitChan chan bool = make(chan bool, 1)
+func (reader *OgnReader) run() {
+	go reader.tcpReader.run(reader.rxChan, reader.txChan)
+	pgrmzTimer := time.NewTicker(100 * time.Millisecond)
 
-
-func ognListen() {
-	//go predTest()
-	for {
-		if !DeviceConfigManager.HasEnabledSdr(CAP_OGN) {
-			// wait until OGN is enabled
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		log.Printf("ogn-rx-eu connecting...")
-		ognAddr := "127.0.0.1:30010"
-		conn, err := net.Dial("tcp", ognAddr)
-		if err != nil { // Local connection failed.
-			time.Sleep(3 * time.Second)
-			continue
-		}
-		log.Printf("ogn-rx-eu successfully connected")
-		ognReadWriter := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
-		globalStatus.OGN_connected = true
-
-		// Make sure the exit channel is empty, so we don't exit immediately
-		for len(ognExitChan) > 0 {
-			<- ognExitChan
-		}
-
-
-		go func() {
-			scanner := bufio.NewScanner(ognReadWriter.Reader)
-			for scanner.Scan() {
-				ognIncomingMsgChan <- scanner.Text()
-			}
-			if scanner.Err() != nil {
-				log.Printf("ogn-rx-eu connection lost: " + scanner.Err().Error())
-			}
-			ognExitChan <- true
-		}()
-
-		pgrmzTimer := time.NewTicker(100 * time.Millisecond)
-
-		loop: for DeviceConfigManager.HasEnabledSdr(CAP_OGN) {
-			select {
-			case data := <- ognOutgoingMsgChan:
-				//fmt.Printf(data)
-				ognReadWriter.Write([]byte(data))
-				ognReadWriter.Flush()
-			case data := <- ognIncomingMsgChan:
-				var thisMsg msg
-				thisMsg.MessageClass = MSGCLASS_OGN
-				thisMsg.TimeReceived = stratuxClock.Time
-				thisMsg.Data = data
-	
-				var msg OgnMessage
-				err = json.Unmarshal([]byte(data), &msg)
-				if err != nil {
-					log.Printf("Invalid Data from OGN: " + data)
-					continue
-				}
-	
-				if msg.Sys == "status" {
-					importOgnStatusMessage(msg)
-				} else {
-					msgLogAppend(thisMsg)
-					logMsg(thisMsg) // writes to replay logs
-					importOgnTrafficMessage(msg, data)
-				}
-			case <- pgrmzTimer.C:
-				if isTempPressValid() && mySituation.BaroSourceType != BARO_TYPE_NONE && mySituation.BaroSourceType != BARO_TYPE_ADSBESTIMATE {
-					ognOutgoingMsgChan <- makePGRMZString()
-				}
-			case <- ognExitChan:
+	// TODO: provide NMEA and POGNS sentences to ogn-rx...
+	loop: for {
+		select {
+		case data, ok := <- reader.rxChan:
+			if !ok {
 				break loop
-
+			}
+			reader.importOgnMessage(data)
+		case <- pgrmzTimer.C:
+			if isTempPressValid() && mySituation.BaroSourceType != BARO_TYPE_NONE && mySituation.BaroSourceType != BARO_TYPE_ADSBESTIMATE {
+				reader.txChan <- makePGRMZString()
 			}
 		}
-		globalStatus.OGN_connected = false
-		conn.Close()
-		time.Sleep(3*time.Second)
+	}
+	pgrmzTimer.Stop()
+}
+
+func (reader *OgnReader) stop() {
+	reader.tcpReader.close()
+}
+
+func (reader *OgnReader) sendNmea(data string) {
+	if !reader.tcpReader.IsConnected {
+		return
+	}
+	if !strings.HasSuffix(data, "\r\n") {
+		data += "\r\n"
+	}
+	reader.txChan <- data
+}
+
+
+func (reader *OgnReader) importOgnMessage(data string) {
+	var thisMsg msg
+	thisMsg.MessageClass = MSGCLASS_OGN
+	thisMsg.TimeReceived = stratuxClock.Time
+	thisMsg.Data = data
+
+	var msg OgnMessage
+	err := json.Unmarshal([]byte(data), &msg)
+	if err != nil {
+		log.Printf("Invalid Data from OGN: " + data)
+		return
+	}
+
+	if msg.Sys == "status" {
+		reader.importOgnStatusMessage(msg)
+	} else {
+		msgLogAppend(thisMsg)
+		logMsg(thisMsg) // writes to replay logs
+		reader.importOgnTrafficMessage(msg, data)
 	}
 }
 
-func importOgnStatusMessage(msg OgnMessage) {
+func (reader *OgnReader) importOgnStatusMessage(msg OgnMessage) {
 	globalStatus.OGN_noise_db = msg.Bkg_noise_db
 	globalStatus.OGN_gain_db = msg.Gain_db
 	globalStatus.OGN_tx_enabled = msg.Tx_enabled
 
 	if msg.Tx_enabled {
-		ognPublishNmea(getOgnTrackerConfigString())
+		reader.sendNmea(getOgnTrackerConfigString())
 	}
 }
 
-func importOgnTrafficMessage(msg OgnMessage, data string) {
+func (reader *OgnReader) importOgnTrafficMessage(msg OgnMessage, data string) {
 	var ti TrafficInfo
 	addressBytes, _ := hex.DecodeString(msg.Addr)
 	addressBytes = append([]byte{0}, addressBytes...)
@@ -311,6 +286,9 @@ func importOgnTrafficMessage(msg OgnMessage, data string) {
 		log.Printf("OGN traffic imported: " + string(txt))
 	}
 }
+
+
+
 
 var ognTailNumberCache = make(map[string]string)
 func lookupOgnTailNumber(ognid string) string {
