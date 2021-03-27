@@ -8,6 +8,8 @@ require (
 	github.com/dustin/go-humanize v1.0.0
 	github.com/erikstmartin/go-testdb v0.0.0-20160219214506-8d10e4a1bae5 // indirect
 	github.com/gansidui/geohash v0.0.0-20141019080235-ebe5ba447f34
+	github.com/jkeiser/iter v0.0.0-20200628201005-c8aa0ae784d1 // indirect
+	github.com/jochenvg/go-udev v0.0.0-20171110120927-d6b62d56d37b // indirect
 	github.com/jpoirier/gortlsdr v2.10.0+incompatible
 	github.com/kellydunn/golang-geo v0.7.0
 	github.com/kidoman/embd v0.0.0-20170508013040-d3d8c0c5c68d
