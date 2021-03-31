@@ -206,21 +206,30 @@ func makeNMEACmd(cmd string) []byte {
 }
 
 
-func initGPSSerial() bool {
+// TODO: device manager -> handle NMEA via socket?!
+
+func (dev *SerialDeviceDataGps) initGPSSerial() bool {
 	var device string
+	vendor := dev.Properties["ID_VENDOR_ID"]
+	model := dev.Properties["ID_MODEL_ID"]
+
+
 	if (globalStatus.GPS_detected_type & 0x0f) == GPS_TYPE_NETWORK {
 		return true
 	}
+
+
+
+
 	// Possible baud rates for this device. We will try to auto detect the correct one
 	baudrates := []int{int(9600)}
 	isSirfIV := bool(false)
 	ognTrackerConfigured = false;
 	globalStatus.GPS_detected_type = 0 // reset detected type on each initialization
 
-	if _, err := os.Stat("/dev/ublox9"); err == nil { // u-blox 8 (RY83xAI over USB).
-		device = "/dev/ublox9"
+	if vendor == "1546" &&	model == "01a9" { // u-blox 9
 		globalStatus.GPS_detected_type = GPS_TYPE_UBX9
-	} else if _, err := os.Stat("/dev/ublox8"); err == nil { // u-blox 8 (RY83xAI or GPYes 2.0).
+	} else if vendor == "1546" &&	model == "01a8" { // u-blox 8 (RY83xAI or GPYes 2.0).
 		device = "/dev/ublox8"
 		globalStatus.GPS_detected_type = GPS_TYPE_UBX8
 		gpsTimeOffsetPpsMs = 80 * time.Millisecond // Ublox 8 seems to have higher delay

@@ -38,6 +38,7 @@ type SdrDeviceConfig struct {
 type SerialDeviceConfig struct {
 	Identifier string
 	HumanReadableName string
+	DevPath string
 	Baud uint32
 	Capabilities uint32
 	CapsConfigured uint32
@@ -53,7 +54,7 @@ type DeviceConfig struct {
 
 type DeviceEventListener interface {
 	onSdrAvailable(cfg SdrDeviceConfig)
-	onSerialAvailable(cfg SerialDeviceConfig)
+	onSerialAvailable(cfg SerialDeviceConfig, props map[string]string)
 }
 
 // Holds the runtime state of each connected device and its configuration.
@@ -137,9 +138,9 @@ func (manager* DeviceConfigManagerStruct) notifySdrAvailable(cfg *SdrDeviceConfi
 	}
 }
 
-func (manager* DeviceConfigManagerStruct) notifySerialAvailable(cfg *SerialDeviceConfig) {
+func (manager* DeviceConfigManagerStruct) notifySerialAvailable(cfg *SerialDeviceConfig, props map[string]string) {
 	for l, _ := range manager.listeners {
-		l.onSerialAvailable(*cfg)
+		l.onSerialAvailable(*cfg, props)
 	}
 }
 
@@ -187,7 +188,7 @@ func (manager* DeviceConfigManagerStruct) onDeviceAvailable(dev *udev.Device) {
 		manager.notifySdrAvailable(cfg)
 	} else if cfg := manager.checkSerialDongle(dev); cfg != nil {
 		log.Printf("Serial device connected: " + cfg.HumanReadableName)
-		manager.notifySerialAvailable(cfg)
+		manager.notifySerialAvailable(cfg, dev.Properties())
 	}
 }
 
@@ -216,6 +217,10 @@ func (manager *DeviceConfigManagerStruct) onSerialDisconnected(dev SerialDevice)
 	delete(manager.Serials, dev.GetDeviceConfig().Identifier)
 }
 
+func (manager *DeviceConfigManagerStruct) GetConnectedSerials() map[string]SerialDevice {
+	return manager.Serials
+}
+
 // Device was physically disconnected from the PI
 func (manager* DeviceConfigManagerStruct) onDeviceUnavailable(dev *udev.Device) {
 	// During disconnect event, we can't get all the nice details, but if the device is open (and only then we care), we get the dev path at least,
@@ -223,7 +228,7 @@ func (manager* DeviceConfigManagerStruct) onDeviceUnavailable(dev *udev.Device) 
 	path, ok := dev.Properties()["DEVPATH"]
 	if ok {
 		for _, dev := range manager.Sdrs {
-			if dev.GetDevPath() == path {
+			if dev.GetDeviceConfig().DevPath == path {
 				log.Printf("SDR disconnected: " + dev.GetDeviceConfig().HumanReadableName)
 				dev.Shutdown()
 				delete(manager.Sdrs, dev.GetDeviceConfig().Identifier)
@@ -231,7 +236,7 @@ func (manager* DeviceConfigManagerStruct) onDeviceUnavailable(dev *udev.Device) 
 			}
 		}
 		for _, dev := range manager.Serials {
-			if dev.GetDevPath() == path {
+			if dev.GetDeviceConfig().DevPath == path {
 				log.Printf("Serial disconnected: " + dev.GetDeviceConfig().HumanReadableName)
 				dev.Shutdown()
 				delete(manager.Serials, dev.GetDeviceConfig().Identifier)
@@ -290,6 +295,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 	props := dev.Properties()
 
 	genericCapabilities := uint32(CAP_NMEA_IN | CAP_NMEA_OUT | CAP_UBX_OUT | CAP_GDL90_OUT)
+	devpath := props["DEVNAME"]
 
 	if props["DEVNAME"] == "/dev/ttyAMA0" {
 		// RPI Builtin serial port. Used as GPS by default
@@ -299,6 +305,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 		}
 		return &SerialDeviceConfig {
 			HumanReadableName: serial,
+			DevPath: devpath,
 			Baud: 38400,
 			Capabilities: genericCapabilities,
 			CapsConfigured: CAP_NMEA_IN,
@@ -318,6 +325,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 		if vendor == "1546" { // UBlox GPS
 			return &SerialDeviceConfig {
 				HumanReadableName: strings.ReplaceAll(serial, "_", " "),
+				DevPath: devpath,
 				Baud: 9600, // ublox default baud. GPS Code will run autodetection anyway
 				Capabilities: CAP_NMEA_IN | CAP_UBX_OUT,
 				CapsConfigured: CAP_NMEA_IN | CAP_UBX_OUT,
@@ -325,6 +333,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 		} else if vendor == "067b" && model == "2303" { // Prolific GPS
 			return &SerialDeviceConfig {
 				HumanReadableName: strings.ReplaceAll(serial, "_", " "),
+				DevPath: devpath,
 				Baud: 4800,
 				Capabilities: CAP_NMEA_IN,
 				CapsConfigured: CAP_NMEA_IN,
@@ -332,6 +341,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 		} else if vendor == "0403" && model == "7028" { // Stratux UAT Radio
 			return &SerialDeviceConfig {
 				HumanReadableName: strings.ReplaceAll(serial, "_", " "),
+				DevPath: devpath,
 				Baud: 2000000,
 				Capabilities: CAP_UAT,
 				CapsConfigured: CAP_UAT,
@@ -339,6 +349,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 		} else {
 			cfg := &SerialDeviceConfig {
 				HumanReadableName: strings.ReplaceAll(modelName, "_", " "),
+				DevPath: devpath,
 				Baud: 9600,
 				Capabilities: genericCapabilities,
 				CapsConfigured: CAP_NMEA_IN, // assume GPS by default (e.g. OGN Tracker)
@@ -384,23 +395,6 @@ func (manager* DeviceConfigManagerStruct) checkSdrDongle(dev *udev.Device) *SdrD
 			cfg.CapsConfigured = CAP_OGN
 		}
 		cfg.PPM = getPPM(cfg.Serial)
-		return &cfg
-	} else if props["SUBSYSTEM"] == "tty" && props["ID_VENDOR_ID"] == "0403" && props["ID_MODEL_ID"] == "7028" {
-		// Stratux UAT Radio
-		serial := props["ID_SERIAL"]
-		if cfg, ok := globalSettings.Devices.Sdrs[serial]; ok {
-			return &cfg
-		}
-
-		// New UAT Radio. Init with default config
-		cfg := SdrDeviceConfig {
-			Identifier: serial,
-			HumanReadableName: strings.ReplaceAll(props["ID_SERIAL"], "_", " "),
-			Serial: props["ID_SERIAL_SHORT"],
-			Capabilities: CAP_UAT,
-			DevPath: props["DEVPATH"],
-			CapsConfigured: CAP_UAT,
-		}
 		return &cfg
 	}
 	return nil

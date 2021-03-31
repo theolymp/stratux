@@ -23,7 +23,6 @@ import (
 )
 
 type SdrDevice interface {
-	GetDevPath() string
 	GetDeviceConfig() SdrDeviceConfig
 	OnConfigUpdate(cfg SdrDeviceConfig)
 	Shutdown()
@@ -37,9 +36,7 @@ type SdrDeviceData struct {
 	DeviceConfig SdrDeviceConfig
 }
 
-func (dev *SdrDeviceData) GetDevPath() string {
-	return dev.DeviceConfig.DevPath
-}
+
 func (dev *SdrDeviceData) GetDeviceConfig() SdrDeviceConfig {
 	return dev.DeviceConfig
 }
@@ -464,6 +461,7 @@ func (u *UAT) Shutdown() {
 	log.Println("UAT shutdown(): closing device ...")
 	u.dev.Close() // preempt the blocking ReadSync call
 	log.Println("UAT shutdown() complete ...")
+	DeviceConfigManager.onSdrDeviceConnected(u)
 }
 
 func (e *ES) Shutdown() {
@@ -472,6 +470,7 @@ func (e *ES) Shutdown() {
 	log.Println("ES shutdown(): calling e.wg.Wait() ...")
 	e.wg.Wait() // Wait for the goroutine to shutdown
 	log.Println("ES shutdown() complete ...")
+	DeviceConfigManager.onSdrDeviceConnected(e)
 }
 
 func (f *OGN) Shutdown() {
@@ -480,6 +479,7 @@ func (f *OGN) Shutdown() {
 	log.Println("signal shutdown(): calling f.wg.Wait() ...")
 	f.wg.Wait() // Wait for the goroutine to shutdown
 	log.Println("signal shutdown() complete ...")
+	DeviceConfigManager.onSdrDeviceConnected(f)
 }
 
 
@@ -533,7 +533,7 @@ func (w *SdrWatcher) onSdrAvailable(cfg SdrDeviceConfig) {
 }
 
 // Not needed, interface function
-func (w *SdrWatcher) onSerialAvailable(cfg SerialDeviceConfig) {}
+func (w *SdrWatcher) onSerialAvailable(cfg SerialDeviceConfig, props map[string]string) {}
 
 
 func sdrInit() {
