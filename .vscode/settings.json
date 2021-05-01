@@ -9,5 +9,13 @@
     
     "terminal.integrated.env.linux": {
         "CGO_CFLAGS_ALLOW": "-L${workspaceRoot}",
+    },
+
+
+    // Use this to make it possible to hide the gen_gdl90 vs fancontrol redeclaration errors..
+    "files.exclude": {
+        "**/.git": true,
+        "ogn/esp-idf/**": true,
+        "test/**": true
     }
 }
