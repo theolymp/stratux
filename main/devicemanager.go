@@ -211,9 +211,11 @@ func (manager *DeviceConfigManagerStruct) onSerialDeviceConnected(dev SerialDevi
 
 // Device was logically disconnected and is now not in use any more
 func (manager *DeviceConfigManagerStruct) onSdrDisconnected(dev SdrDevice) {
+	log.Printf("SDR disconnected: " + dev.GetDeviceConfig().DevPath)
 	delete(manager.Sdrs, dev.GetDeviceConfig().Identifier)
 }
 func (manager *DeviceConfigManagerStruct) onSerialDisconnected(dev SerialDevice) {
+	log.Printf("Serial disconnected: " + dev.GetDeviceConfig().DevPath)
 	delete(manager.Serials, dev.GetDeviceConfig().Identifier)
 }
 
@@ -350,7 +352,7 @@ func (manager* DeviceConfigManagerStruct) checkSerialDongle(dev *udev.Device) *S
 			cfg := &SerialDeviceConfig {
 				HumanReadableName: strings.ReplaceAll(modelName, "_", " "),
 				DevPath: devpath,
-				Baud: 9600,
+				Baud: 115200,
 				Capabilities: genericCapabilities,
 				CapsConfigured: CAP_NMEA_IN, // assume GPS by default (e.g. OGN Tracker)
 			}

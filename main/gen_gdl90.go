@@ -1648,6 +1648,7 @@ func main() {
 	initDeviceManager()
 
 	sdrInit()
+	serialInit()
 	pingInit()
 	initTraffic()
 

@@ -438,7 +438,13 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 				saveSettings()
 				applyNetworkSettings(false)
 				if reconfigureOgnTracker {
-					configureOgnTrackerFromSettings()
+					// TODO: bit hacky...
+					for _, dev := range DeviceConfigManager.Serials {
+						gps, ok := dev.(*SerialDeviceDataGps)
+						if ok {
+							gps.configureOgnTrackerFromSettings()
+						}
+					}
 				}
 				if reconfigureFancontrol {
 					exec.Command("killall", "-SIGUSR1", "fancontrol").Run();

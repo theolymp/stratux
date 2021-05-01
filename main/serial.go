@@ -12,7 +12,6 @@ import (
 
 type SerialDevice interface {
 	OpenSerial() bool
-	ReadForever()
 	GetDeviceConfig() SerialDeviceConfig
 	OnConfigUpdate(cfg SerialDeviceConfig)
 	InitDevice()
@@ -28,13 +27,7 @@ type SerialDeviceData struct {
 	port       *serial.Port
 }
 
-type SerialDeviceDataGps struct {
-	SerialDeviceData
-	GpsDetectedType uint
-	// To make sure the PI's clock is as precise as possible, we have some pre-defined offsets from the
-	// GPS reported time, because some chips have varying reportinf delays
-	TimeOffsetPpsMs uint 
-}
+
 
 func (dev *SerialDeviceData) GetDeviceConfig() SerialDeviceConfig {
 	return dev.DeviceConfig
@@ -42,10 +35,10 @@ func (dev *SerialDeviceData) GetDeviceConfig() SerialDeviceConfig {
 
 func (dev *SerialDeviceData) OpenSerial() bool {
 	dev.Shutdown()
-	serialConfig = &serial.Config{Name: dev.DeviceConfig.DevPath, Baud: int(dev.DeviceConfig.Baud)}
+	serialConfig := &serial.Config{Name: dev.DeviceConfig.DevPath, Baud: int(dev.DeviceConfig.Baud)}
 	port, err := serial.OpenPort(serialConfig)
 	if err != nil {
-		addSingleSystemErrorf("serial", "Failed to open serial device %s (%s baud %d)", dev.DeviceConfig.HumanReadableName, dev.DeviceConfig.DevPath, dev.DeviceConfig.Baud)
+		addSingleSystemErrorf("serial", "Failed to open serial device %s (%s baud %d): %s", dev.DeviceConfig.HumanReadableName, dev.DeviceConfig.DevPath, dev.DeviceConfig.Baud, err.Error())
 		return false
 	}
 	log.Printf("Opened serial device %s (%s baud %d)", dev.DeviceConfig.HumanReadableName, dev.DeviceConfig.DevPath, dev.DeviceConfig.Baud)
@@ -68,6 +61,12 @@ func (dev *SerialDeviceData) Write(data []byte) bool {
 	return false
 }
 
+func (dev *SerialDeviceData) Flush() {
+	if dev.port != nil {
+		dev.port.Flush()
+	}
+}
+
 func (dev *SerialDeviceData) Shutdown() {
 	if dev.port != nil {
 		dev.port.Close()
@@ -77,25 +76,10 @@ func (dev *SerialDeviceData) Shutdown() {
 }
 
 func (dev *SerialDeviceData) ReadForever() {
-
 }
 
 func (dev *SerialDeviceData) InitDevice() {
-	if dev.DeviceConfig.CapsConfigured & CAP_NMEA_IN > 0 {
-
-	}
 }
-
-func (dev *SerialDeviceDataGps) InitDevice() {
-	// Try autobauding
-	if !dev.AutoBaudNmea() {
-		log.Printf("Unable to determine GPS Baud rate for device %s. Falling back to assuming %d", dev.DeviceConfig.HumanReadableName, dev.DeviceConfig.Baud)
-		dev.Shutdown()
-		return
-	}
-	//initGPSSerial(dev)
-}
-
 
 func (dev *SerialDeviceData) AutoBaudNmea() bool {
 	baudrates := []uint32 { dev.DeviceConfig.Baud, 115200, 57600, 38400, 9600, 4800 }
@@ -141,14 +125,13 @@ func (s *SerialManagerType) onSerialAvailable(cfg SerialDeviceConfig, props map[
 	var dev SerialDevice
 	deviceData := &SerialDeviceData{DeviceConfig: cfg, Properties: props}
 	if (cfg.CapsConfigured & CAP_NMEA_IN) > 0 {
-		dev = &SerialDeviceDataGps{SerialDeviceData : *deviceData}
+		dev = &SerialDeviceDataGps{SerialDeviceData : *deviceData, TimeOffsetPpsMs: 100 * time.Millisecond}
 	} else {
 		dev = deviceData
 	}
 	if dev.OpenSerial() {
 		DeviceConfigManager.onSerialDeviceConnected(dev)
-		dev.InitDevice()
-		go dev.ReadForever()		
+		go dev.InitDevice()
 	}
 }
 

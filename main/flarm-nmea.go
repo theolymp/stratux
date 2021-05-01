@@ -508,7 +508,7 @@ func handleNmeaInConnection(c net.Conn) {
 		if err != nil {
 			break
 		}
-		processNMEALine(line)
+		processNMEALine(line, nil)
 	}
 	globalStatus.GPS_connected = false
 	globalStatus.GPS_detected_type = 0
