@@ -285,203 +285,155 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 	// for an OPTION method request, we return header without processing.
 	// this insures we are recognized as supporting cross-domain AJAX REST calls
 	if r.Method == "POST" {
-		// raw, _ := httputil.DumpRequest(r, true)
-		// log.Printf("handleSettingsSetRequest:raw: %s\n", raw)
+		defer func() {
+			// while it may be redundant, we return the latest settings
+			settingsJSON, _ := json.Marshal(&globalSettings)
+			fmt.Fprintf(w, "%s\n", settingsJSON)
+		}()
 
-		decoder := json.NewDecoder(r.Body)
-		for {
-			var msg map[string]interface{} // support arbitrary JSON
-
-			err := decoder.Decode(&msg)
-			if err == io.EOF {
-				break
-			} else if err != nil {
-				log.Printf("handleSettingsSetRequest:error: %s\n", err.Error())
-			} else {
-				reconfigureOgnTracker := false
-				reconfigureFancontrol := false
-				for key, val := range msg {
-					// log.Printf("handleSettingsSetRequest:json: testing for key:%s of type %s\n", key, reflect.TypeOf(val))
-					switch key {
-					case "DarkMode":
-						globalSettings.DarkMode = val.(bool)
-					case "UAT_Enabled":
-						globalSettings.UAT_Enabled = val.(bool)
-					case "ES_Enabled":
-						globalSettings.ES_Enabled = val.(bool)
-					case "OGN_Enabled":
-						globalSettings.OGN_Enabled = val.(bool)
-					case "Ping_Enabled":
-						globalSettings.Ping_Enabled = val.(bool)
-					case "GPS_Enabled":
-						globalSettings.GPS_Enabled = val.(bool)
-					case "IMU_Sensor_Enabled":
-						globalSettings.IMU_Sensor_Enabled = val.(bool)
-						if !globalSettings.IMU_Sensor_Enabled && globalStatus.IMUConnected {
-							myIMUReader.Close()
-							globalStatus.IMUConnected = false
-						}
-					case "BMP_Sensor_Enabled":
-						globalSettings.BMP_Sensor_Enabled = val.(bool)
-						if !globalSettings.BMP_Sensor_Enabled && globalStatus.BMPConnected {
-							myPressureReader.Close()
-							globalStatus.BMPConnected = false
-						}
-					case "DEBUG":
-						globalSettings.DEBUG = val.(bool)
-					case "DisplayTrafficSource":
-						globalSettings.DisplayTrafficSource = val.(bool)
-					case "ReplayLog":
-						v := val.(bool)
-						if v != globalSettings.ReplayLog { // Don't mark the files unless there is a change.
-							globalSettings.ReplayLog = v
-						}
-					case "AHRSLog":
-						globalSettings.AHRSLog = val.(bool)
-					case "PersistentLogging":
-						globalSettings.PersistentLogging = val.(bool)
-						setPersistentLogging(globalSettings.PersistentLogging)
-					case "IMUMapping":
-						if globalSettings.IMUMapping != val.([2]int) {
-							globalSettings.IMUMapping = val.([2]int)
-							myIMUReader.Close()
-							globalStatus.IMUConnected = false // Force a restart of the IMU reader
-						}
-					case "PPM":
-						globalSettings.PPM = int(val.(float64))
-					case "AltitudeOffset":
-						globalSettings.AltitudeOffset = int(val.(float64))
-					case "RadarLimits":
-						globalSettings.RadarLimits = int(val.(float64))
-						radarUpdate.SendJSON(globalSettings)
-					case "RadarRange":
-						globalSettings.RadarRange = int(val.(float64))
-						radarUpdate.SendJSON(globalSettings)
-					case "Baud":
-						if globalSettings.SerialOutputs != nil {
-							for dev, serialOut := range globalSettings.SerialOutputs {
-								newBaud := int(val.(float64))
-								if newBaud == serialOut.Baud { // Same baud rate. No change.
-									continue
-								}
-								log.Printf("changing %s baud rate from %d to %d.\n", dev, serialOut.Baud, newBaud)
-								serialOut.Baud = newBaud
-								// Close the port if it is open.
-								if serialOut.serialPort != nil {
-									log.Printf("closing %s for baud rate change.\n", dev)
-									serialOut.serialPort.Close()
-									serialOut.serialPort = nil
-								}
-								globalSettings.SerialOutputs[dev] = serialOut
-							}
-						}
-					case "WatchList":
-						globalSettings.WatchList = val.(string)
-					case "GLimits":
-						globalSettings.GLimits = val.(string)
-					case "OwnshipModeS":
-						codes := strings.Split(val.(string), ",")
-						codesFinal :=  make([]string, 0)
-						for _, code := range codes {
-							code = strings.Trim(code, " ")
-							// Expecting a hex string less than 6 characters (24 bits) long.
-							if len(code) > 6 { // Too long.
-								continue
-							}
-							// Pad string, must be 6 characters long.
-							vals := strings.ToUpper(code)
-							for len(vals) < 6 {
-								vals = "0" + vals
-							}
-							hexn, err := hex.DecodeString(vals)
-							if err != nil { // Number not valid.
-								log.Printf("handleSettingsSetRequest:OwnshipModeS: %s\n", err.Error())
-								continue
-							}
-							codesFinal = append(codesFinal, fmt.Sprintf("%02X%02X%02X", hexn[0], hexn[1], hexn[2]))
-						}
-						globalSettings.OwnshipModeS = strings.Join(codesFinal, ",")
-					case "StaticIps":
-						ipsStr := val.(string)
-						ips := strings.Split(ipsStr, " ")
-						if ipsStr == "" {
-							ips = make([]string, 0)
-						}
-
-						re, _ := regexp.Compile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
-						err := ""
-						for _, ip := range ips {
-							// Verify IP format
-							if !re.MatchString(ip) {
-								err = err + "Invalid IP: " + ip + ". "
-							}
-						}
-						if err != "" {
-							log.Printf("handleSettingsSetRequest:StaticIps: %s\n", err)
-							continue
-						}
-						globalSettings.StaticIps = ips
-					case "WiFiSSID":
-						setWifiSSID(val.(string))
-					case "WiFiChannel":
-						setWifiChannel(int(val.(float64)))
-					case "WiFiSecurityEnabled":
-						setWifiSecurityEnabled(val.(bool))
-					case "WiFiPassphrase":
-						setWifiPassphrase(val.(string))
-					case "WiFiSmartEnabled":
-						setWifiSmartEnabled(val.(bool))
-					case "WiFiIPAddress":
-						setWifiIPAddress(val.(string))
-					case "WiFiMode":
-						setWiFiMode(int(val.(float64)))
-					case "WiFiDirectPin":
-						setWifiDirectPin(val.(string))
-					case "SkyDemonAndroidHack":
-						globalSettings.SkyDemonAndroidHack = val.(bool)
-					case "EstimateBearinglessDist":
-						globalSettings.EstimateBearinglessDist = val.(bool)
-
-					case "OGNAddrType":
-						globalSettings.OGNAddrType = int(val.(float64))
-						reconfigureOgnTracker = true
-					case "OGNAddr":
-						globalSettings.OGNAddr = val.(string)
-						reconfigureOgnTracker = true
-					case "OGNAcftType":
-						globalSettings.OGNAcftType = int(val.(float64))
-						reconfigureOgnTracker = true
-					case "OGNPilot":
-						globalSettings.OGNPilot = val.(string)
-						reconfigureOgnTracker = true
-					case "OGNReg":
-						globalSettings.OGNReg = val.(string)
-						reconfigureOgnTracker = true
-					case "OGNTxPower":
-						globalSettings.OGNTxPower = int(val.(float64))
-						reconfigureOgnTracker = true
-					case "PWMDutyMin":
-						globalSettings.PWMDutyMin = int(val.(float64))
-						reconfigureFancontrol = true
-
-					default:
-						log.Printf("handleSettingsSetRequest:json: unrecognized key:%s\n", key)
-					}
-				}
-				saveSettings()
-				applyNetworkSettings(false)
-				if reconfigureOgnTracker {
-					configureOgnTrackerFromSettings()
-				}
-				if reconfigureFancontrol {
-					exec.Command("killall", "-SIGUSR1", "fancontrol").Run();
-				}
-			}
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Failed to read settings request: %s", err.Error())
+			return
 		}
 
-		// while it may be redundant, we return the latest settings
-		settingsJSON, _ := json.Marshal(&globalSettings)
-		fmt.Fprintf(w, "%s\n", settingsJSON)
+		var msg map[string]interface{} // support arbitrary JSON
+
+		// Set settings generically first.. for some of them we will need additional processing, so we also decode into map
+		// Ignore errors when this happens
+		json.Unmarshal(body, &globalSettings)
+		err = json.Unmarshal(body, &msg)
+		if err != nil {
+			log.Printf("handleSettingsSetRequest:error: %s\n", err.Error())
+			return
+		}
+			
+
+		reconfigureOgnTracker := false
+
+		for key, val := range msg {
+			// log.Printf("handleSettingsSetRequest:json: testing for key:%s of type %s\n", key, reflect.TypeOf(val))
+			switch key {
+			case "IMU_Sensor_Enabled":
+				if !globalSettings.IMU_Sensor_Enabled && globalStatus.IMUConnected {
+					myIMUReader.Close()
+					globalStatus.IMUConnected = false
+				}
+			case "BMP_Sensor_Enabled":
+				if !globalSettings.BMP_Sensor_Enabled && globalStatus.BMPConnected {
+					myPressureReader.Close()
+					globalStatus.BMPConnected = false
+				}
+			case "PersistentLogging":
+				setPersistentLogging(globalSettings.PersistentLogging)
+			case "IMUMapping":
+				myIMUReader.Close()
+				globalStatus.IMUConnected = false // Force a restart of the IMU reader
+			case "RadarLimits":
+				radarUpdate.SendJSON(globalSettings)
+			case "RadarRange":
+				radarUpdate.SendJSON(globalSettings)
+			case "Baud":
+				if globalSettings.SerialOutputs != nil {
+					for dev, serialOut := range globalSettings.SerialOutputs {
+						newBaud := int(val.(float64))
+						if newBaud == serialOut.Baud { // Same baud rate. No change.
+							continue
+						}
+						log.Printf("changing %s baud rate from %d to %d.\n", dev, serialOut.Baud, newBaud)
+						serialOut.Baud = newBaud
+						// Close the port if it is open.
+						if serialOut.serialPort != nil {
+							log.Printf("closing %s for baud rate change.\n", dev)
+							serialOut.serialPort.Close()
+							serialOut.serialPort = nil
+						}
+						globalSettings.SerialOutputs[dev] = serialOut
+					}
+				}
+			case "OwnshipModeS":
+				codes := strings.Split(val.(string), ",")
+				codesFinal :=  make([]string, 0)
+				for _, code := range codes {
+					code = strings.Trim(code, " ")
+					// Expecting a hex string less than 6 characters (24 bits) long.
+					if len(code) > 6 { // Too long.
+						continue
+					}
+					// Pad string, must be 6 characters long.
+					vals := strings.ToUpper(code)
+					for len(vals) < 6 {
+						vals = "0" + vals
+					}
+					hexn, err := hex.DecodeString(vals)
+					if err != nil { // Number not valid.
+						log.Printf("handleSettingsSetRequest:OwnshipModeS: %s\n", err.Error())
+						continue
+					}
+					codesFinal = append(codesFinal, fmt.Sprintf("%02X%02X%02X", hexn[0], hexn[1], hexn[2]))
+				}
+				globalSettings.OwnshipModeS = strings.Join(codesFinal, ",")
+			case "StaticIps":
+				ipsStr := val.(string)
+				ips := strings.Split(ipsStr, " ")
+				if ipsStr == "" {
+					ips = make([]string, 0)
+				}
+
+				re, _ := regexp.Compile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
+				err := ""
+				for _, ip := range ips {
+					// Verify IP format
+					if !re.MatchString(ip) {
+						err = err + "Invalid IP: " + ip + ". "
+					}
+				}
+				if err != "" {
+					log.Printf("handleSettingsSetRequest:StaticIps: %s\n", err)
+					continue
+				}
+				globalSettings.StaticIps = ips
+			case "WiFiSSID":
+				setWifiSSID(val.(string))
+			case "WiFiChannel":
+				setWifiChannel(int(val.(float64)))
+			case "WiFiSecurityEnabled":
+				setWifiSecurityEnabled(val.(bool))
+			case "WiFiPassphrase":
+				setWifiPassphrase(val.(string))
+			case "WiFiSmartEnabled":
+				setWifiSmartEnabled(val.(bool))
+			case "WiFiIPAddress":
+				setWifiIPAddress(val.(string))
+			case "WiFiMode":
+				setWiFiMode(int(val.(float64)))
+			case "WiFiDirectPin":
+				setWifiDirectPin(val.(string))
+
+			case "OGNAddrType":
+				reconfigureOgnTracker = true
+			case "OGNAddr":
+				reconfigureOgnTracker = true
+			case "OGNAcftType":
+				reconfigureOgnTracker = true
+			case "OGNPilot":
+				reconfigureOgnTracker = true
+			case "OGNReg":
+				reconfigureOgnTracker = true
+			case "OGNTxPower":
+				reconfigureOgnTracker = true
+			case "PWMDutyMin":
+				exec.Command("killall", "-SIGUSR1", "fancontrol").Run();
+
+			//default:
+			//	log.Printf("handleSettingsSetRequest:json: unrecognized key:%s\n", key)
+			}
+		}
+		saveSettings()
+		applyNetworkSettings(false)
+		if reconfigureOgnTracker {
+			configureOgnTrackerFromSettings()
+		}
 	}
 }
 
@@ -741,6 +693,10 @@ func handleDownloadDBRequest(w http.ResponseWriter, r *http.Request) {
 	//w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=stratux.sqlite")
 	http.ServeFile(w, r, "/var/log/stratux.sqlite")
+}
+
+func handleLogExport(w http.ResponseWriter, r *http.Request) {
+	exportGpx([]int{2}, nil)
 }
 
 // Upload an update file.
@@ -1070,6 +1026,7 @@ func managementInterface() {
 	http.HandleFunc("/deleteahrslogfiles", handleDeleteAHRSLogFiles)
 	http.HandleFunc("/downloadahrslogs", handleDownloadAHRSLogsRequest)
 	http.HandleFunc("/downloaddb", handleDownloadDBRequest)
+	http.HandleFunc("/logExport", handleLogExport)
 	http.HandleFunc("/tiles/tilesets", handleTilesets)
 	http.HandleFunc("/tiles/", handleTile)
 

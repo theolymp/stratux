@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -24,16 +23,11 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const (
-	LOG_TIMESTAMP_RESOLUTION = 250 * time.Millisecond
-)
-
 type StratuxTimestamp struct {
 	id                   int64
-	Time_type_preference int // 0 = stratuxClock, 1 = gpsClock, 2 = gpsClock extrapolated via stratuxClock.
-	StratuxClock_value   time.Time
-	GPSClock_value       time.Time // The value of this is either from the GPS or extrapolated from the GPS via stratuxClock if pref is 1 or 2. It is time.Time{} if 0.
-	PreferredTime_value  time.Time
+	StratuxClock_value   int64
+	SystemClock_value    int64 // Only if we consider it valid (i.e. had GPS Signal since startup)
+	GPSClock_value       int64 // The value of this is either from the GPS or extrapolated from the GPS via stratuxClock if pref is 1 or 2. It is time.Time{} if 0.
 	StartupID            int64
 }
 
@@ -48,48 +42,6 @@ var dataLogStarted bool
 var dataLogReadyToWrite bool
 
 var stratuxStartupID int64
-var dataLogTimestamps []StratuxTimestamp
-var dataLogCurTimestamp int64 // Current timestamp bucket. This is an index on dataLogTimestamps which is not necessarily the db id.
-
-/*
-	checkTimestamp().
-		Verify that our current timestamp is within the LOG_TIMESTAMP_RESOLUTION bucket.
-		 Returns false if the timestamp was changed, true if it is still valid.
-		 This is where GPS timestamps are extrapolated, if the GPS data is currently valid.
-*/
-
-func checkTimestamp() bool {
-	thisCurTimestamp := dataLogCurTimestamp
-	if stratuxClock.Since(dataLogTimestamps[thisCurTimestamp].StratuxClock_value) >= LOG_TIMESTAMP_RESOLUTION {
-		var ts StratuxTimestamp
-		ts.id = 0
-		ts.Time_type_preference = 0 // stratuxClock.
-		ts.StratuxClock_value = stratuxClock.Time
-		ts.GPSClock_value = time.Time{}
-		ts.PreferredTime_value = stratuxClock.Time
-
-		// Extrapolate from GPS timestamp, if possible.
-		if isGPSClockValid() && thisCurTimestamp > 0 {
-			// Was the last timestamp either extrapolated or GPS time?
-			last_ts := dataLogTimestamps[thisCurTimestamp]
-			if last_ts.Time_type_preference == 1 || last_ts.Time_type_preference == 2 {
-				// Extrapolate via stratuxClock.
-				timeSinceLastTS := ts.StratuxClock_value.Sub(last_ts.StratuxClock_value) // stratuxClock ticks since last timestamp.
-				extrapolatedGPSTimestamp := last_ts.PreferredTime_value.Add(timeSinceLastTS)
-
-				// Re-set the preferred timestamp type to '2' (extrapolated time).
-				ts.Time_type_preference = 2
-				ts.PreferredTime_value = extrapolatedGPSTimestamp
-				ts.GPSClock_value = extrapolatedGPSTimestamp
-			}
-		}
-
-		dataLogTimestamps = append(dataLogTimestamps, ts)
-		dataLogCurTimestamp = int64(len(dataLogTimestamps) - 1)
-		return false
-	}
-	return true
-}
 
 type SQLiteMarshal struct {
 	FieldType string
@@ -137,8 +89,12 @@ func structMarshal(v reflect.Value) string {
 		m := v.MethodByName("String")
 		in := make([]reflect.Value, 0)
 		ret := m.Call(in)
+		// hack: time value that's uninitialized -- we want that as null
 		if len(ret) > 0 {
-			return ret[0].String()
+			s := ret[0].String()
+			if s != "0001-01-01 00:00:00 +0000 UTC" {
+				return s
+			}
 		}
 	}
 	return ""
@@ -209,13 +165,20 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 		fields = append(fields, "timestamp_id INTEGER")
 	}
 
-	tblCreate := fmt.Sprintf("CREATE TABLE %s (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, %s)", tbl, strings.Join(fields, ", "))
-
+	tblCreate := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, %s)", tbl, strings.Join(fields, ", "))
 	_, err := db.Exec(tblCreate)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err.Error())
 	}
+
+	// Now additionally, try to ALTER TABLE ADD COLUMN all the fields, ignoring errors. This is so we can
+	// add new fields to existing datalog tables
+	for _, field := range fields {
+		tblAlter := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", tbl, field)
+		db.Exec(tblAlter)
+	}
 }
+
 
 /*
 	bulkInsert().
@@ -301,18 +264,9 @@ func insertData(i interface{}, tbl string, db *sql.DB, ts_num int64) int64 {
 		keys = append(keys, fieldName)
 		values = append(values, v)
 	}
-
-	// Add the timestamp_id field to link up with the timestamp table.
-	if tbl != "timestamp" && tbl != "startup" {
+	if tbl != "startup" && tbl != "timestamp" {
 		keys = append(keys, "timestamp_id")
-		if dataLogTimestamps[ts_num].id == 0 {
-			//FIXME: This is somewhat convoluted. When insertData() is called for a ts_num that corresponds to a timestamp with no database id,
-			// then it inserts that timestamp via the same interface and the id is updated in the structure via the below lines
-			// (dataLogTimestamps[ts_num].id = id).
-			dataLogTimestamps[ts_num].StartupID = stratuxStartupID
-			insertData(dataLogTimestamps[ts_num], "timestamp", db, ts_num) // Updates dataLogTimestamps[ts_num].id.
-		}
-		values = append(values, strconv.FormatInt(dataLogTimestamps[ts_num].id, 10))
+		values = append(values, fmt.Sprint(ts_num))
 	}
 
 	if _, ok := insertString[tbl]; !ok {
@@ -333,12 +287,7 @@ func insertData(i interface{}, tbl string, db *sql.DB, ts_num int64) int64 {
 	if tbl == "timestamp" || tbl == "startup" { // Immediate insert always for "timestamp" and "startup" table.
 		res, err := bulkInsert(tbl, db) // Bulk insert of 1, always.
 		if err == nil {
-			id, err := res.LastInsertId()
-			if err == nil && tbl == "timestamp" { // Special handling for timestamps. Update the timestamp ID.
-				ts := dataLogTimestamps[ts_num]
-				ts.id = id
-				dataLogTimestamps[ts_num] = ts
-			}
+			id, _ := res.LastInsertId()
 			return id
 		}
 	}
@@ -347,34 +296,65 @@ func insertData(i interface{}, tbl string, db *sql.DB, ts_num int64) int64 {
 }
 
 type DataLogRow struct {
+	key    string // we only log rows once each configured interval if they have the same uniqueKey (e.g. "situation" or a traffic target's hex ID)
 	tbl    string
 	data   interface{}
-	ts_num int64
 }
 
-var dataLogChan chan DataLogRow
 var shutdownDataLog chan bool
 var shutdownDataLogWriter chan bool
 
 var dataLogWriteChan chan DataLogRow
+var dataLogWriteBatchChan chan bool
+
+var lastWriteTs StratuxTimestamp
 
 func dataLogWriter(db *sql.DB) {
 	dataLogWriteChan = make(chan DataLogRow, 10240)
+	dataLogWriteBatchChan = make(chan bool, 1)
 	shutdownDataLogWriter = make(chan bool)
-	// The write queue. As data comes in via dataLogChan, it is timestamped and stored.
-	//  When writeTicker comes up, the queue is emptied.
-	writeTicker := time.NewTicker(10 * time.Second)
+
+	// Unkeyed rows - always write em all
 	rowsQueuedForWrite := make([]DataLogRow, 0)
-	for {
+	// keyed rows - only write them once per time unit
+	keyedRowsQueuedForWrite := make(map[string]DataLogRow)
+	loop: for {
 		select {
 		case r := <-dataLogWriteChan:
 			// Accept timestamped row.
-			rowsQueuedForWrite = append(rowsQueuedForWrite, r)
-		case <-writeTicker.C:
-			//			for i := 0; i < 1000; i++ {
-			//				logSituation()
-			//			}
+			if r.key == "" {
+				rowsQueuedForWrite = append(rowsQueuedForWrite, r)
+			} else {
+				keyedRowsQueuedForWrite[r.key] = r
+			}
+			
+			currentMs := int64(stratuxClock.Milliseconds)
+			if currentMs - lastWriteTs.StratuxClock_value < int64(globalSettings.ReplayLogResolutionMs) {
+				// don't write yet
+				continue
+			}
+
+			// perform write
 			timeStart := stratuxClock.Time
+
+			var ts StratuxTimestamp
+			ts.id = 0
+			ts.StratuxClock_value = currentMs
+			if isGPSClockValid() {
+				ts.GPSClock_value = mySituation.GPSTime.UnixNano() / int64(time.Millisecond)
+			}
+			if globalStatus.SystemClockValid {
+				ts.SystemClock_value = time.Now().UTC().UnixNano() / int64(time.Millisecond)
+			}
+			ts.StartupID = stratuxStartupID
+			ts.id = insertData(ts, "timestamp", db, 0)
+			lastWriteTs = ts
+			
+			// Append the remaining keyed values
+			for _, val := range keyedRowsQueuedForWrite {
+				rowsQueuedForWrite = append(rowsQueuedForWrite, val)
+			}
+
 			nRows := len(rowsQueuedForWrite)
 			if globalSettings.DEBUG {
 				log.Printf("Writing %d rows\n", nRows)
@@ -390,7 +370,7 @@ func dataLogWriter(db *sql.DB) {
 			}
 			for _, r := range rowsQueuedForWrite {
 				tblsAffected[r.tbl] = true
-				insertData(r.data, r.tbl, db, r.ts_num)
+				insertData(r.data, r.tbl, db, ts.id)
 			}
 			// Do the bulk inserts.
 			for tbl, _ := range tblsAffected {
@@ -398,13 +378,15 @@ func dataLogWriter(db *sql.DB) {
 			}
 			// Close the transaction.
 			tx.Commit()
-			rowsQueuedForWrite = make([]DataLogRow, 0) // Zero the queue.
+			// Zero the queues.
+			keyedRowsQueuedForWrite = make(map[string]DataLogRow)
+			rowsQueuedForWrite = make([]DataLogRow, 0) 
 			timeElapsed := stratuxClock.Since(timeStart)
 			if globalSettings.DEBUG {
 				rowsPerSecond := float64(nRows) / float64(timeElapsed.Seconds())
 				log.Printf("Writing finished. %d rows in %.2f seconds (%.1f rows per second).\n", nRows, float64(timeElapsed.Seconds()), rowsPerSecond)
 			}
-			if timeElapsed.Seconds() > 10.0 {
+			if uint32(timeElapsed.Milliseconds()) > globalSettings.ReplayLogResolutionMs {
 				log.Printf("WARNING! SQLite logging is behind. Last write took %.1f seconds.\n", float64(timeElapsed.Seconds()))
 				dataLogCriticalErr := fmt.Errorf("WARNING! SQLite logging is behind. Last write took %.1f seconds.\n", float64(timeElapsed.Seconds()))
 				addSystemError(dataLogCriticalErr)
@@ -412,7 +394,7 @@ func dataLogWriter(db *sql.DB) {
 		case <-shutdownDataLogWriter: // Received a message on the channel to initiate a graceful shutdown, and to command dataLog() to shut down
 			log.Printf("datalog.go: dataLogWriter() received shutdown message with rowsQueuedForWrite = %d\n", len(rowsQueuedForWrite))
 			shutdownDataLog <- true
-			return
+			break loop
 		}
 	}
 	log.Printf("datalog.go: dataLogWriter() shutting down\n")
@@ -421,25 +403,7 @@ func dataLogWriter(db *sql.DB) {
 func dataLog() {
 	dataLogStarted = true
 	log.Printf("datalog.go: dataLog() started\n")
-	dataLogChan = make(chan DataLogRow, 10240)
 	shutdownDataLog = make(chan bool)
-	dataLogTimestamps = make([]StratuxTimestamp, 0)
-	var ts StratuxTimestamp
-	ts.id = 0
-	ts.Time_type_preference = 0 // stratuxClock.
-	ts.StratuxClock_value = stratuxClock.Time
-	ts.GPSClock_value = time.Time{}
-	ts.PreferredTime_value = stratuxClock.Time
-	dataLogTimestamps = append(dataLogTimestamps, ts)
-	dataLogCurTimestamp = 0
-
-	// Check if we need to create a new database.
-	createDatabase := false
-
-	if _, err := os.Stat(dataLogFilef); os.IsNotExist(err) {
-		createDatabase = true
-		log.Printf("creating new database '%s'.\n", dataLogFilef)
-	}
 
 	db, err := sql.Open("sqlite3", dataLogFilef)
 	if err != nil {
@@ -449,7 +413,6 @@ func dataLog() {
 	defer func() {
 		db.Close()
 		dataLogStarted = false
-		//close(dataLogChan)
 		log.Printf("datalog.go: dataLog() has closed DB in %s\n", dataLogFilef)
 	}()
 
@@ -457,70 +420,50 @@ func dataLog() {
 	if err != nil {
 		log.Printf("db.Exec('PRAGMA journal_mode=WAL') err: %s\n", err.Error())
 	}
-	_, err = db.Exec("PRAGMA synchronous=OFF")
-	if err != nil {
-		log.Printf("db.Exec('PRAGMA journal_mode=WAL') err: %s\n", err.Error())
-	}
+	// can potentially corrupt DB...
+	//_, err = db.Exec("PRAGMA synchronous=OFF")
+	//if err != nil {
+	//	log.Printf("db.Exec('PRAGMA journal_mode=WAL') err: %s\n", err.Error())
+	//}
 
 	//log.Printf("Starting dataLogWriter\n") // REMOVE -- DEBUG
-	go dataLogWriter(db)
+	
 
-	// Do we need to create the database?
-	if createDatabase {
-		makeTable(StratuxTimestamp{}, "timestamp", db)
-		makeTable(mySituation, "mySituation", db)
-		makeTable(globalStatus, "status", db)
-		makeTable(globalSettings, "settings", db)
-		makeTable(TrafficInfo{}, "traffic", db)
-		makeTable(msg{}, "messages", db)
-		makeTable(esmsg{}, "es_messages", db)
-		makeTable(Dump1090TermMessage{}, "dump1090_terminal", db)
-		makeTable(gpsPerfStats{}, "gps_attitude", db)
-		makeTable(StratuxStartup{}, "startup", db)
-	}
+	// Do we need to create/update the database schema?
+	makeTable(StratuxTimestamp{}, "timestamp", db)
+	makeTable(mySituation, "mySituation", db)
+	makeTable(globalStatus, "status", db)
+	makeTable(globalSettings, "settings", db)
+	makeTable(TrafficInfo{}, "traffic", db)
+	makeTable(msg{}, "messages", db)
+	makeTable(esmsg{}, "es_messages", db)
+	makeTable(Dump1090TermMessage{}, "dump1090_terminal", db)
+	makeTable(gpsPerfStats{}, "gps_attitude", db)
+	makeTable(StratuxStartup{}, "startup", db)
+
+	// Create indices
+	db.Exec("CREATE INDEX IF NOT EXISTS timestamp_index ON timestamp(StartupID, SystemClock_value)")
+	db.Exec("CREATE INDEX IF NOT EXISTS situation_index ON mySituation(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS status_index ON status(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS settings_index ON settings(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS traffic_index ON traffic(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS messages_index ON messages(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS es_messages_index ON es_messages(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS dump1090_terminal_index ON dump1090_terminal(timestamp_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS gps_attitude_index ON gps_attitude(timestamp_id)")
 
 	// The first entry to be created is the "startup" entry.
 	stratuxStartupID = insertData(StratuxStartup{}, "startup", db, 0)
+	go dataLogWriter(db)
 
 	dataLogReadyToWrite = true
 	//log.Printf("Entering dataLog read loop\n") //REMOVE -- DEBUG
-	for {
-		select {
-		case r := <-dataLogChan:
-			// When data is input, the first step is to timestamp it.
-			// Check if our time bucket has expired or has never been entered.
-			checkTimestamp()
-			// Mark the row with the current timestamp ID, in case it gets entered later.
-			r.ts_num = dataLogCurTimestamp
-			// Queue it for the scheduled write.
-			dataLogWriteChan <- r
-		case <-shutdownDataLog: // Received a message on the channel to complete a graceful shutdown (see the 'defer func()...' statement above).
-			log.Printf("datalog.go: dataLog() received shutdown message\n")
-			return
-		}
-	}
+
+	<-shutdownDataLog // Received a message on the channel to complete a graceful shutdown (see the 'defer func()...' statement above).
+	log.Printf("datalog.go: dataLog() received shutdown message\n")
+
 	log.Printf("datalog.go: dataLog() shutting down\n")
 	close(shutdownDataLog)
-}
-
-/*
-	setDataLogTimeWithGPS().
-		Create a timestamp entry using GPS time.
-*/
-
-func setDataLogTimeWithGPS(sit SituationData) {
-	if isGPSClockValid() {
-		var ts StratuxTimestamp
-		// Piggyback a GPS time update from this update.
-		ts.id = 0
-		ts.Time_type_preference = 1 // gpsClock.
-		ts.StratuxClock_value = stratuxClock.Time
-		ts.GPSClock_value = sit.GPSTime
-		ts.PreferredTime_value = sit.GPSTime
-
-		dataLogTimestamps = append(dataLogTimestamps, ts)
-		dataLogCurTimestamp = int64(len(dataLogTimestamps) - 1)
-	}
 }
 
 /*
@@ -534,50 +477,50 @@ func isDataLogReady() bool {
 }
 
 func logSituation() {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "mySituation", data: mySituation}
+	if globalSettings.ReplayLogSituation && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{key: "situation", tbl: "mySituation", data: mySituation}
 	}
 }
 
 func logStatus() {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "status", data: globalStatus}
+	if globalSettings.ReplayLogStatus && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{key: "status", tbl: "status", data: globalStatus}
 	}
 }
 
 func logSettings() {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "settings", data: globalSettings}
+	if globalSettings.ReplayLogStatus && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{key: "settings", tbl: "settings", data: globalSettings}
 	}
 }
 
 func logTraffic(ti TrafficInfo) {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "traffic", data: ti}
+	if globalSettings.ReplayLogTraffic && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{key: fmt.Sprint(ti.Icao_addr), tbl: "traffic", data: ti}
 	}
 }
 
 func logMsg(m msg) {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "messages", data: m}
+	if globalSettings.ReplayLogDebugMessages && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{tbl: "messages", data: m}
 	}
 }
 
 func logESMsg(m esmsg) {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "es_messages", data: m}
+	if globalSettings.ReplayLogDebugMessages && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{tbl: "es_messages", data: m}
 	}
 }
 
 func logGPSAttitude(gpsPerf gpsPerfStats) {
-	if globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "gps_attitude", data: gpsPerf}
+	if globalSettings.ReplayLogDebugMessages && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{tbl: "gps_attitude", data: gpsPerf}
 	}
 }
 
 func logDump1090TermMessage(m Dump1090TermMessage) {
-	if globalSettings.DEBUG && globalSettings.ReplayLog && isDataLogReady() {
-		dataLogChan <- DataLogRow{tbl: "dump1090_terminal", data: m}
+	if globalSettings.ReplayLogDebugMessages && isDataLogReady() {
+		dataLogWriteChan <- DataLogRow{tbl: "dump1090_terminal", data: m}
 	}
 }
 
@@ -599,12 +542,19 @@ func initDataLog() {
 		and dataLogWriter goroutines.
 */
 
+func anyReplayLogEnabled() bool {
+	if globalStatus.ReplayActive {
+		return false
+	}
+	return globalSettings.ReplayLogDebugMessages || globalSettings.ReplayLogSituation || globalSettings.ReplayLogStatus || globalSettings.ReplayLogTraffic;
+}
+
 func dataLogWatchdog() {
 	for {
-		if !dataLogStarted && globalSettings.ReplayLog { // case 1: sqlite logging isn't running, and we want to start it
+		if !dataLogStarted && anyReplayLogEnabled() { // case 1: sqlite logging isn't running, and we want to start it
 			log.Printf("datalog.go: Watchdog wants to START logging.\n")
 			go dataLog()
-		} else if dataLogStarted && !globalSettings.ReplayLog { // case 2:  sqlite logging is running, and we want to shut it down
+		} else if dataLogStarted && !anyReplayLogEnabled() { // case 2:  sqlite logging is running, and we want to shut it down
 			log.Printf("datalog.go: Watchdog wants to STOP logging.\n")
 			closeDataLog()
 		}

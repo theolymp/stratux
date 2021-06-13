@@ -1160,7 +1160,7 @@ type settings struct {
 	DarkMode             bool
 	UAT_Enabled          bool
 	ES_Enabled           bool
-	OGN_Enabled        bool
+	OGN_Enabled          bool
 	Ping_Enabled         bool
 	GPS_Enabled          bool
 	BMP_Sensor_Enabled   bool
@@ -1169,7 +1169,13 @@ type settings struct {
 	SerialOutputs        map[string]serialConnection
 	DisplayTrafficSource bool
 	DEBUG                bool
-	ReplayLog            bool
+
+	ReplayLogSituation   bool
+	ReplayLogStatus      bool
+	ReplayLogTraffic     bool
+	ReplayLogDebugMessages bool
+	ReplayLogResolutionMs uint32
+
 	AHRSLog              bool
 	PersistentLogging    bool
 	IMUMapping           [2]int     // Map from aircraft axis to sensor axis: accelerometer
@@ -1262,6 +1268,8 @@ type status struct {
 	OGN_noise_db                               float32
 	OGN_gain_db                                float32
 	OGN_tx_enabled                             bool // If ogn-rx-eu uses a local tx module for transmission
+	ReplayActive                               bool
+	SystemClockValid                           bool
 }
 
 var globalSettings settings
@@ -1282,8 +1290,8 @@ func defaultSettings() {
 		{Conn: nil, Ip: "", Port: 49002, Capability: NETWORK_POSITION_FFSIM | NETWORK_AHRS_FFSIM},
 	}
 	globalSettings.DEBUG = false
-	globalSettings.DisplayTrafficSource = false
-	globalSettings.ReplayLog = false //TODO: 'true' for debug builds.
+	globalSettings.ReplayLogResolutionMs = 500
+
 	globalSettings.AHRSLog = false
 	globalSettings.IMUMapping = [2]int{-1, 0}
 	globalSettings.OwnshipModeS = "F00000"
@@ -1665,14 +1673,14 @@ func main() {
 	// Override after reading in the settings.
 	if *replayFlag == true {
 		log.Printf("Replay file %s\n", *replayUATFilename)
-		globalSettings.ReplayLog = false
+		globalStatus.ReplayActive = true
 	}
 
 	if globalSettings.DeveloperMode == true {
 		log.Printf("Developer mode set\n")
 	}
 
-	//FIXME: Only do this if data logging is enabled.
+	//Start flight logger
 	initDataLog()
 
 	// Start the AHRS sensor monitoring.

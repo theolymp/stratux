@@ -8,7 +8,8 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 	$scope.$parent.helppage = 'plates/settings-help.html';
 
 	var toggles = ['UAT_Enabled', 'ES_Enabled', 'OGN_Enabled', 'Ping_Enabled', 'GPS_Enabled', 'IMU_Sensor_Enabled',
-		'BMP_Sensor_Enabled', 'DisplayTrafficSource', 'DEBUG', 'ReplayLog', 'AHRSLog', 'PersistentLogging', 'GDL90MSLAlt_Enabled', 'SkyDemonAndroidHack', 'EstimateBearinglessDist', 'DarkMode'];
+		'BMP_Sensor_Enabled', 'DisplayTrafficSource', 'DEBUG', 'ReplayLogSituation', 'ReplayLogStatus', 'ReplayLogTraffic', 'ReplayLogDebugMessages', 'AHRSLog', 
+		'PersistentLogging', 'GDL90MSLAlt_Enabled', 'SkyDemonAndroidHack', 'EstimateBearinglessDist', 'DarkMode'];
 
 	var settings = {};
 	for (var i = 0; i < toggles.length; i++) {
@@ -49,7 +50,11 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 		$scope.BMP_Sensor_Enabled = settings.BMP_Sensor_Enabled;
 		$scope.DisplayTrafficSource = settings.DisplayTrafficSource;
 		$scope.DEBUG = settings.DEBUG;
-		$scope.ReplayLog = settings.ReplayLog;
+		$scope.ReplayLogSituation = settings.ReplayLogSituation;
+		$scope.ReplayLogStatus = settings.ReplayLogStatus;
+		$scope.ReplayLogTraffic = settings.ReplayLogTraffic;
+		$scope.ReplayLogDebugMessages = settings.ReplayLogDebugMessages;
+		$scope.ReplayLogResolutionMs = settings.ReplayLogResolutionMs / 1000.0;
 		$scope.AHRSLog = settings.AHRSLog;
 		$scope.PersistentLogging = settings.PersistentLogging;
 
@@ -154,6 +159,17 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 			setSettings(angular.toJson(newsettings));
 		}
 	};
+	
+	$scope.updateFlightLogResolution = function() {
+		settings['ReplayLogResolutionMs'] = 0.2;
+		if ($scope.ReplayLogResolutionMs !== undefined && $scope.ReplayLogResolutionMs !== null) {
+			settings['ReplayLogResolutionMs'] = parseFloat($scope.ReplayLogResolutionMs) * 1000;
+			var newsettings = {
+				'ReplayLogResolutionMs': settings['ReplayLogResolutionMs']
+			};
+			setSettings(angular.toJson(newsettings));
+		}
+	}
 
 	$scope.updatePWMDutyMin = function() {
 		settings['PWMDutyMin'] = 0;

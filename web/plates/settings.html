@@ -354,6 +354,46 @@
     <!-- End Left Col -->
     <!-- Begin Right Col -->
     <div class="col-sm-6">
+        <!-- Flight data recorder -->
+        <div class="panel-group col-sm-12">
+            <div class="panel panel-default">
+                <div class="panel-heading">Flight Data Recorder</div>
+                <div class="panel-body">
+                    <div class="form-group reset-flow">
+                        <label class="control-label col-xs-5">Log Situation (GPS/AHRS/G-Load) (~xx MB/h)</label>
+                        <div class="col-xs-7">
+                            <ui-switch ng-model='ReplayLogSituation' settings-change></ui-switch>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label col-xs-5">Log Device Status (~xx MB/h)</label>
+                        <div class="col-xs-7">
+                            <ui-switch ng-model="ReplayLogStatus" settings-change></ui-switch>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label col-xs-5">Log Traffic (~xx MB/h)</label>
+                        <div class="col-xs-7">
+                            <ui-switch ng-model="ReplayLogTraffic" settings-change></ui-switch>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label col-xs-5">Log Other/Raw Messages (~xx MB/h)</label>
+                        <div class="col-xs-7">
+                            <ui-switch ng-model="ReplayLogDebugMessages" settings-change></ui-switch>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label col-xs-5">Flight Log Resolution (seconds)</label>
+                        <div class="col-xs-7">
+                            <input class="col-xs-7" type="number" step="0.1" ng-model="ReplayLogResolutionMs" placeholder="0.2 - 10" min="0.2"
+                            max="10" ng-change="updateFlightLogResolution()" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
         <!-- Diagnostics Values -->
         <div ng-show="DeveloperMode" class="panel-group col-sm-12">
             <div class="panel panel-default">
@@ -369,12 +409,6 @@
                         <label class="control-label col-xs-5">Verbose Message Log</label>
                         <div class="col-xs-7">
                             <ui-switch ng-model='DEBUG' settings-change></ui-switch>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="control-label col-xs-5">Record Replay Logs</label>
-                        <div class="col-xs-7">
-                            <ui-switch ng-model='ReplayLog' settings-change></ui-switch>
                         </div>
                     </div>
                     <div class="form-group">
