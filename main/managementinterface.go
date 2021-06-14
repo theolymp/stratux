@@ -696,7 +696,7 @@ func handleDownloadDBRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogExport(w http.ResponseWriter, r *http.Request) {
-	exportGpx([]int{2}, nil)
+	exportGpx([]int{1, 2, 3, 4}, nil)
 }
 
 // Upload an update file.

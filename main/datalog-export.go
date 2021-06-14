@@ -2,42 +2,57 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"io"
+	"reflect"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Fetches all data from a boot ordered by timestamp, calling the respective callbacks as available
-func getAllData(db *sql.DB, bootid int, callback func(SituationData), statusCb func(status), trafficCb func(TrafficInfo)) error {
-	// Because the various tables have overlapping field names, we can't just join them all together.
-	// However, we do want to process in proper order.. Therefore we need multiple queries and loop over the timestamps
-	// here manually.
-	rows, err := db.Query("select id from timestamp where StartupId=? ORDER BY StratuxClock_value", bootid)
+func fillStructFromRow(row *sql.Rows, dest interface{}) error {
+	colnames, _ := row.Columns()
+	colvals := make([]interface{}, len(colnames))
+	colptrs := make([]interface{}, len(colnames))
+	for k, _ := range colvals {
+		colptrs[k] = &colvals[k]
+	}
+	err := row.Scan(colptrs...)
+	if err != nil {
+		fmt.Printf("%s", err.Error())
+		return err
+	}
+
+	refl := reflect.ValueOf(dest)
+
+	for i, column := range colnames {
+		value := colvals[i]
+
+		f := refl.FieldByName(column)
+		if f.IsValid() && f.CanSet() {
+			fmt.Println(value)
+			fmt.Println(f.Kind())
+		}
+	}
+	return nil
+
+}
+
+
+// Fetches all MySituations for the respective boot
+func getMyTrack(db *sql.DB, bootid int, resultCb func(ts StratuxTimestamp, sit SituationData)) error {
+	rows, err := db.Query("select * from timestamp inner join mySituation on timestamp.id=mySituation.timestamp_id " +
+						"where StartupId=? AND SystemClock_value is not null order by StratuxClock_value", bootid)
+
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	for rows.Next() {
-		var tsid uint64
-		err = rows.Scan(&tsid)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		// Fetch situation data
-		situationRows, err := db.Query("select * from mySituation WHERE timestamp_id=?", tsid)
-		if err != nil {
-			return err
-		}
-		defer situationRows.Close()
-		for situationRows.Next() {
-			var sit SituationData
-			err = rows.Scan(&sit)
-			if err != nil {
-				return err
-			}
-			//situationCb(sit)
-		}
+		var ts StratuxTimestamp
+		var sit SituationData
+		fillStructFromRow(rows, ts)
+		fillStructFromRow(rows, sit)
+		resultCb(ts, sit)
 	}
 	return nil
 }
@@ -54,9 +69,9 @@ func exportGpx(bootids []int, dst io.Writer) error {
 	}
 
 	for _, bootid := range bootids {
-		getAllData(db, bootid, func(situation SituationData) {
+		getMyTrack(db, bootid, func(ts StratuxTimestamp, situation SituationData) {
 
-		}, nil, nil)
+		})
 	}
 	return nil
 }
