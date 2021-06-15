@@ -145,7 +145,7 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 	fields := make([]string, 0)
 	// Add the timestamp_id field to link up with the timestamp table.
 	if tbl != "timestamp" && tbl != "startup" {
-		fields = append(fields, "timestamp_id INTEGER NOT NULL REFERENCES timestamp(id)")
+		fields = append(fields, "timestamp_id INTEGER NOT NULL REFERENCES timestamp(id) ON DELETE CASCADE")
 	}
 
 	for i := 0; i < val.NumField(); i++ {
@@ -161,6 +161,11 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 			continue
 		}
 		sqlType := sqliteMarshalFunctions[sqlTypeAlias].FieldType
+		if tbl == "timestamp" && fieldName == "StartupID" {
+			// add foreign key constraint to boot as well, so we can easily delete logs
+			sqlType += " NOT NULL REFERENCES startup(id) ON DELETE CASCADE"
+
+		}
 		s := fieldName + " " + sqlType
 		fields = append(fields, s)
 	}
@@ -422,6 +427,7 @@ func dataLog() {
 	if err != nil {
 		log.Printf("db.Exec('PRAGMA journal_mode=WAL') err: %s\n", err.Error())
 	}
+	db.Exec("PRAGMA foreign_keys = ON")
 	// can potentially corrupt DB...
 	//_, err = db.Exec("PRAGMA synchronous=OFF")
 	//if err != nil {
