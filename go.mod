@@ -14,6 +14,7 @@ require (
 	github.com/kylelemons/go-gypsy v1.0.0 // indirect
 	github.com/lib/pq v1.10.0 // indirect
 	github.com/mattn/go-sqlite3 v1.14.6
+	github.com/mitchellh/mapstructure v1.4.1
 	github.com/prometheus/client_golang v1.10.0
 	github.com/ricochet2200/go-disk-usage v0.0.0-20150921141558-f0d1b743428f
 	github.com/stratux/serial v0.0.0-19700101022104-87f23b1d3198

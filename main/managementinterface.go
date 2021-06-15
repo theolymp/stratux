@@ -696,7 +696,12 @@ func handleDownloadDBRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogExport(w http.ResponseWriter, r *http.Request) {
-	exportGpx([]int{1, 2, 3, 4}, nil)
+	uriparts := strings.Split(r.RequestURI, "/")
+	num, err := strconv.Atoi(uriparts[len(uriparts)-1])
+	if err == nil {
+		w.Header().Set("Content-Disposition", "attachment; filename=stratux.gpx")
+		exportGpx(num, w)
+	}
 }
 
 // Upload an update file.
@@ -1026,7 +1031,7 @@ func managementInterface() {
 	http.HandleFunc("/deleteahrslogfiles", handleDeleteAHRSLogFiles)
 	http.HandleFunc("/downloadahrslogs", handleDownloadAHRSLogsRequest)
 	http.HandleFunc("/downloaddb", handleDownloadDBRequest)
-	http.HandleFunc("/logExport", handleLogExport)
+	http.HandleFunc("/logExport/", handleLogExport)
 	http.HandleFunc("/tiles/tilesets", handleTilesets)
 	http.HandleFunc("/tiles/", handleTile)
 

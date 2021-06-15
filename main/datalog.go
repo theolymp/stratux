@@ -143,6 +143,11 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 	val := reflect.ValueOf(i)
 
 	fields := make([]string, 0)
+	// Add the timestamp_id field to link up with the timestamp table.
+	if tbl != "timestamp" && tbl != "startup" {
+		fields = append(fields, "timestamp_id INTEGER NOT NULL REFERENCES timestamp(id)")
+	}
+
 	for i := 0; i < val.NumField(); i++ {
 		kind := val.Field(i).Kind()
 		fieldName := val.Type().Field(i).Name
@@ -160,10 +165,7 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 		fields = append(fields, s)
 	}
 
-	// Add the timestamp_id field to link up with the timestamp table.
-	if tbl != "timestamp" && tbl != "startup" {
-		fields = append(fields, "timestamp_id INTEGER")
-	}
+
 
 	tblCreate := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, %s)", tbl, strings.Join(fields, ", "))
 	_, err := db.Exec(tblCreate)
