@@ -355,7 +355,7 @@ func dataLogWriter(db *sql.DB) {
 				keyedRowsQueuedForWrite[r.key] = r
 			}
 			
-			if stratuxClock.Since(lastWriteTs.StratuxClock_value) < time.Duration(globalSettings.ReplayLogResolutionMs) * time.Microsecond {
+			if stratuxClock.Since(lastWriteTs.StratuxClock_value) < time.Duration(globalSettings.ReplayLogResolutionMs) * time.Millisecond {
 				// don't write yet
 				continue
 			}
