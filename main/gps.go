@@ -1253,8 +1253,8 @@ func processNMEALine(l string) (sentenceUsed bool) {
 					} else {
 						log.Printf("Time set from GPS. Current time is %v\n", time.Now())
 					}
-					globalStatus.SystemClockValid = true
 				}
+				globalStatus.SystemClockValid = true
 			}
 		}
 

@@ -695,12 +695,20 @@ func handleDownloadDBRequest(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/var/log/stratux.sqlite")
 }
 
+func handleGetLogList(w http.ResponseWriter, r *http.Request) {
+	log, _ := GetDbFlightLog()
+	logList, _ := log.GetLogList()
+	asJson, _ := json.Marshal(logList)
+	w.Write(asJson)
+}
+
 func handleLogExport(w http.ResponseWriter, r *http.Request) {
 	uriparts := strings.Split(r.RequestURI, "/")
 	num, err := strconv.Atoi(uriparts[len(uriparts)-1])
 	if err == nil {
 		w.Header().Set("Content-Disposition", "attachment; filename=stratux.gpx")
-		exportGpx(num, w)
+		log, _ := GetDbFlightLog()
+		log.ExportGpx(num, w)
 	}
 }
 
@@ -1031,6 +1039,7 @@ func managementInterface() {
 	http.HandleFunc("/deleteahrslogfiles", handleDeleteAHRSLogFiles)
 	http.HandleFunc("/downloadahrslogs", handleDownloadAHRSLogsRequest)
 	http.HandleFunc("/downloaddb", handleDownloadDBRequest)
+	http.HandleFunc("/logExport/getLogList", handleGetLogList)
 	http.HandleFunc("/logExport/", handleLogExport)
 	http.HandleFunc("/tiles/tilesets", handleTilesets)
 	http.HandleFunc("/tiles/", handleTile)

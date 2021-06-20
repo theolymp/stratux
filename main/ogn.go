@@ -246,20 +246,26 @@ func importOgnTrafficMessage(msg OgnMessage, data string) {
 	// To keep the rest of the system as simple as possible, we want to work with barometric altitude everywhere.
 	// To do so, we use our own known geoid separation and pressure difference to compute the expected barometric altitude of the traffic.
 	// Some OGN trackers are equiped with a baro sensor, but older firmwares send wrong data, so we usually can't rely on it.
-	alt := msg.Alt_msl_m * 3.28084
-	if alt == 0 {
-		alt = msg.Alt_hae_m * 3.28084 - mySituation.GPSGeoidSep
+	altMsl := msg.Alt_msl_m * 3.28084
+	if altMsl == 0 {
+		altMsl = msg.Alt_hae_m * 3.28084 - mySituation.GPSGeoidSep
 	}
+	altHae := msg.Alt_hae_m
+	if altHae == 0 {
+		altHae = altMsl + mySituation.GPSGeoidSep
+	}
+
 	if isGPSValid() && isTempPressValid() {
-		ti.Alt = int32(alt - mySituation.GPSAltitudeMSL + mySituation.BaroPressureAltitude)
+		ti.Alt = int32(altMsl - mySituation.GPSAltitudeMSL + mySituation.BaroPressureAltitude)
+		ti.GnssDiffFromBaroAlt = int32(ti.Alt - int32(altHae))
 		ti.AltIsGNSS = false
 	} else if msg.Alt_std_m != 0 {
 		// Fall back to received baro alt
 		ti.Alt = int32(msg.Alt_std_m * 3.28084)
 		ti.AltIsGNSS = false
 	} else {
-		// Fall back to GNSS alt
-		ti.Alt = int32(alt)
+		// Fall back to GNSS alt - can't do any better..
+		ti.Alt = int32(altMsl)
 		ti.AltIsGNSS = true
 	}
 

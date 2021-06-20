@@ -24,17 +24,17 @@ import (
 )
 
 type StratuxTimestamp struct {
-	id                   int64
-	StratuxClock_value   int64
-	SystemClock_value    int64 // Only if we consider it valid (i.e. had GPS Signal since startup)
-	GPSClock_value       int64 // The value of this is either from the GPS or extrapolated from the GPS via stratuxClock if pref is 1 or 2. It is time.Time{} if 0.
+	Id                   int64
+	StratuxClock_value   time.Time
+	SystemClock_value    time.Time // Only if we consider it valid (i.e. had GPS Signal since startup)
+	GPSClock_value       time.Time // The value of this is either from the GPS or extrapolated from the GPS via stratuxClock if pref is 1 or 2. It is time.Time{} if 0.
 	StartupID            int64
 }
 
 // 'startup' table creates a new entry each time the daemon is started. This keeps track of sequential starts, even if the
 //  timestamp is ambiguous (units with no GPS). This struct is just a placeholder for an empty table (other than primary key).
 type StratuxStartup struct {
-	id   int64
+	Id   int64
 	Fill string
 }
 
@@ -76,6 +76,14 @@ func notsupportedMarshal(v reflect.Value) string {
 	return ""
 }
 
+func datetimeMarshal(v reflect.Value) string {
+	ts := v.Interface().(time.Time)
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.Format("2006-01-02T15:04:05.999Z")
+}
+
 func structCanBeMarshalled(v reflect.Value) bool {
 	m := v.MethodByName("String")
 	if m.IsValid() && !m.IsNil() {
@@ -106,6 +114,7 @@ var sqliteMarshalFunctions = map[string]SQLiteMarshal{
 	"uint":         {FieldType: "INTEGER", Marshal: uintMarshal},
 	"float":        {FieldType: "REAL", Marshal: floatMarshal},
 	"string":       {FieldType: "TEXT", Marshal: stringMarshal},
+	"struct Time":  {FieldType: "DATETIME", Marshal: datetimeMarshal},
 	"struct":       {FieldType: "STRING", Marshal: structMarshal},
 	"notsupported": {FieldType: "notsupported", Marshal: notsupportedMarshal},
 }
@@ -152,13 +161,17 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 		kind := val.Field(i).Kind()
 		fieldName := val.Type().Field(i).Name
 		sqlTypeAlias := sqlTypeMap[kind]
+		typeName := val.Field(i).Type().Name()
 
 		// Check that if the field is a struct that it can be marshalled.
 		if sqlTypeAlias == "struct" && !structCanBeMarshalled(val.Field(i)) {
 			continue
 		}
-		if sqlTypeAlias == "notsupported" || fieldName == "id" {
+		if sqlTypeAlias == "notsupported" || fieldName == "Id" {
 			continue
+		}
+		if sqlTypeAlias == "struct" { // struct Time
+			sqlTypeAlias += " " + typeName
 		}
 		sqlType := sqliteMarshalFunctions[sqlTypeAlias].FieldType
 		if tbl == "timestamp" && fieldName == "StartupID" {
@@ -261,9 +274,14 @@ func insertData(i interface{}, tbl string, db *sql.DB, ts_num int64) int64 {
 		kind := val.Field(i).Kind()
 		fieldName := val.Type().Field(i).Name
 		sqlTypeAlias := sqlTypeMap[kind]
+		typeName := val.Field(i).Type().Name()
 
-		if sqlTypeAlias == "notsupported" || fieldName == "id" {
+		if sqlTypeAlias == "notsupported" || fieldName == "Id" {
 			continue
+		}
+
+		if sqlTypeAlias == "struct" {
+			sqlTypeAlias += " " + typeName
 		}
 
 		v := sqliteMarshalFunctions[sqlTypeAlias].Marshal(val.Field(i))
@@ -325,6 +343,8 @@ func dataLogWriter(db *sql.DB) {
 	rowsQueuedForWrite := make([]DataLogRow, 0)
 	// keyed rows - only write them once per time unit
 	keyedRowsQueuedForWrite := make(map[string]DataLogRow)
+	var transaction *sql.Tx
+	lastCommitTime :=  stratuxClock.Time
 	loop: for {
 		select {
 		case r := <-dataLogWriteChan:
@@ -335,8 +355,7 @@ func dataLogWriter(db *sql.DB) {
 				keyedRowsQueuedForWrite[r.key] = r
 			}
 			
-			currentMs := int64(stratuxClock.Milliseconds)
-			if currentMs - lastWriteTs.StratuxClock_value < int64(globalSettings.ReplayLogResolutionMs) {
+			if stratuxClock.Since(lastWriteTs.StratuxClock_value) < time.Duration(globalSettings.ReplayLogResolutionMs) * time.Microsecond {
 				// don't write yet
 				continue
 			}
@@ -345,16 +364,16 @@ func dataLogWriter(db *sql.DB) {
 			timeStart := stratuxClock.Time
 
 			var ts StratuxTimestamp
-			ts.id = 0
-			ts.StratuxClock_value = currentMs
+			ts.Id = 0
+			ts.StratuxClock_value = stratuxClock.Time
 			if isGPSClockValid() {
-				ts.GPSClock_value = mySituation.GPSTime.UnixNano() / int64(time.Millisecond)
+				ts.GPSClock_value = mySituation.GPSTime
 			}
 			if globalStatus.SystemClockValid {
-				ts.SystemClock_value = time.Now().UTC().UnixNano() / int64(time.Millisecond)
+				ts.SystemClock_value = time.Now().UTC()
 			}
 			ts.StartupID = stratuxStartupID
-			ts.id = insertData(ts, "timestamp", db, 0)
+			ts.Id = insertData(ts, "timestamp", db, 0)
 			lastWriteTs = ts
 			
 			// Append the remaining keyed values
@@ -370,32 +389,39 @@ func dataLogWriter(db *sql.DB) {
 			// Save the names of the tables affected so that we can run bulkInsert() on after the insertData() calls.
 			tblsAffected := make(map[string]bool)
 			// Start transaction.
-			tx, err := db.Begin()
-			if err != nil {
-				log.Printf("db.Begin() error: %s\n", err.Error())
-				break // from select {}
+			if transaction == nil {
+				var err error
+				transaction, err = db.Begin()
+				if err != nil {
+					log.Printf("db.Begin() error: %s\n", err.Error())
+					break // from select {}
+				}
 			}
 			for _, r := range rowsQueuedForWrite {
 				tblsAffected[r.tbl] = true
-				insertData(r.data, r.tbl, db, ts.id)
+				insertData(r.data, r.tbl, db, ts.Id)
 			}
 			// Do the bulk inserts.
 			for tbl, _ := range tblsAffected {
 				bulkInsert(tbl, db)
 			}
-			// Close the transaction.
-			tx.Commit()
+			// Close the transaction every 10s.. the sync() sometimes has >1s of delay, so we don't want to do it too often
+			committed := false
+			if stratuxClock.Since(lastCommitTime) >= 10 * time.Second {
+				transaction.Commit()
+				transaction = nil
+				lastCommitTime = stratuxClock.Time
+				committed = true
+			}
 			// Zero the queues.
 			keyedRowsQueuedForWrite = make(map[string]DataLogRow)
 			rowsQueuedForWrite = make([]DataLogRow, 0) 
 			timeElapsed := stratuxClock.Since(timeStart)
-			if globalSettings.DEBUG {
-				rowsPerSecond := float64(nRows) / float64(timeElapsed.Seconds())
-				log.Printf("Writing finished. %d rows in %.2f seconds (%.1f rows per second).\n", nRows, float64(timeElapsed.Seconds()), rowsPerSecond)
-			}
-			if uint32(timeElapsed.Milliseconds()) > globalSettings.ReplayLogResolutionMs {
-				log.Printf("WARNING! SQLite logging is behind. Last write took %.1f seconds.\n", float64(timeElapsed.Seconds()))
-				dataLogCriticalErr := fmt.Errorf("WARNING! SQLite logging is behind. Last write took %.1f seconds.\n", float64(timeElapsed.Seconds()))
+
+			durationSecs := float64(timeElapsed.Milliseconds()) / 1000.0
+			if (committed && durationSecs > 10) || (!committed && uint32(durationSecs * 1000) > globalSettings.ReplayLogResolutionMs) {
+				dataLogCriticalErr := fmt.Errorf("WARNING! SQLite logging is behind. Last write took %.1f seconds (commit=%t)", durationSecs, committed)
+				log.Printf(dataLogCriticalErr.Error())
 				addSystemError(dataLogCriticalErr)
 			}
 		case <-shutdownDataLogWriter: // Received a message on the channel to initiate a graceful shutdown, and to command dataLog() to shut down

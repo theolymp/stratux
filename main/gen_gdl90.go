@@ -1611,7 +1611,13 @@ func main() {
 		globalStatus.HardwareBuild = "Merlin"
 	}
 	debugLogf = filepath.Join(logDirf, debugLogFile)
-	dataLogFilef = filepath.Join(logDirf, dataLogFile)
+	// sqlite log to home..
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		dataLogFilef = filepath.Join(homeDir, dataLogFile)
+	} else {
+		dataLogFilef = filepath.Join(logDirf, dataLogFile)
+	}
 
 	//	replayESFilename := flag.String("eslog", "none", "ES Log filename")
 	replayUATFilename := flag.String("uatlog", "none", "UAT Log filename")
