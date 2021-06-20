@@ -1616,7 +1616,7 @@ func main() {
 	if err == nil {
 		dataLogFilef = filepath.Join(homeDir, dataLogFile)
 	} else {
-		dataLogFilef = filepath.Join(logDirf, dataLogFile)
+		dataLogFilef = filepath.Join("/root/", dataLogFile)
 	}
 
 	//	replayESFilename := flag.String("eslog", "none", "ES Log filename")
