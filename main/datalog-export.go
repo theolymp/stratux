@@ -115,7 +115,7 @@ func (this *DbFlightLog) ExportGpx(bootid int, dst io.Writer) error {
 			return
 		}
 		dst.Write([]byte(fmt.Sprintf("<trkpt lat=\"%f\" lon=\"%f\">", situation.GPSLatitude, situation.GPSLongitude)))
-		dst.Write([]byte(fmt.Sprintf("<ele>%f</ele>", situation.GPSAltitudeMSL)))
+		dst.Write([]byte(fmt.Sprintf("<ele>%f</ele>", situation.GPSHeightAboveEllipsoid / 3.28084)))
 		dst.Write([]byte(fmt.Sprintf("<time>%s</time>", this.formatTime(situation.SystemClock_value))))
 		dst.Write([]byte("</trkpt>\n"))
 	})
@@ -148,9 +148,9 @@ func (this *DbFlightLog) ExportGpx(bootid int, dst io.Writer) error {
 		}
 		dst.Write([]byte(fmt.Sprintf("<trkpt lat=\"%f\" lon=\"%f\">", ti.Lat, ti.Lng)))
 		if ti.AltIsGNSS {
-			dst.Write([]byte(fmt.Sprintf("<ele>%d</ele>", ti.Alt)))
+			dst.Write([]byte(fmt.Sprintf("<ele>%f</ele>", float32(ti.Alt) / 3.28084)))
 		} else {
-			dst.Write([]byte(fmt.Sprintf("<ele>%d</ele>", ti.Alt + ti.GnssDiffFromBaroAlt)))
+			dst.Write([]byte(fmt.Sprintf("<ele>%f</ele>", float32(ti.Alt + ti.GnssDiffFromBaroAlt) / 3.28084)))
 		}
 		dst.Write([]byte(fmt.Sprintf("<time>%s</time>", this.formatTime(ti.SystemClock_value))))
 		dst.Write([]byte("</trkpt>\n"))
