@@ -17,7 +17,9 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -871,6 +873,15 @@ func viewLogs(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func tileToDegree(z, x, y int) (lon, lat float64) {
+	// osm-like schema:
+	y = (1 << z) - y - 1
+	n := math.Pi - 2.0*math.Pi*float64(y)/math.Exp2(float64(z))
+	lat = 180.0 / math.Pi * math.Atan(0.5*(math.Exp(n)-math.Exp(-n)))
+	lon = float64(x)/math.Exp2(float64(z))*360.0 - 180.0
+	return lon, lat
+}
+
 // Scans mapdata dir for all .db and .mbtiles files and returns json representation of all metadata values
 func handleTilesets(w http.ResponseWriter, r *http.Request) {
 	files, err := ioutil.ReadDir(STRATUX_HOME + "/mapdata/");
@@ -904,6 +915,23 @@ func handleTilesets(w http.ResponseWriter, r *http.Request) {
 				rows.Scan(&name, &val)
 				meta[name] = val
 			}
+			// determine extent of layer if not given.. Openlayers kinda needs this, or it can happen that it tries to do
+			// a billion request do down-scale high-res pngs that aren't even there (i.e. all 404s)
+			if _, ok := meta["bounds"]; !ok {
+				maxZoomInt, _ := strconv.ParseInt(meta["maxzoom"], 10, 32)
+				rows, err = db.Query("SELECT min(tile_column), min(tile_row), max(tile_column), max(tile_row) FROM tiles WHERE zoom_level=?", maxZoomInt)
+				if err != nil {
+					log.Printf("SQLite read error %s: %s", f.Name(), err.Error())
+					continue
+				}
+				rows.Next()
+				var xmin, ymin, xmax, ymax int
+				rows.Scan(&xmin, &ymin, &xmax, &ymax)
+				lonmin, latmin := tileToDegree(int(maxZoomInt), xmin, ymin)
+				lonmax, latmax := tileToDegree(int(maxZoomInt), xmax+1, ymax+1)
+				meta["bounds"] = fmt.Sprintf("%f,%f,%f,%f", lonmin, latmin, lonmax, latmax)
+			}
+
 			result[f.Name()] = meta
 		}
 	}
@@ -912,17 +940,15 @@ func handleTilesets(w http.ResponseWriter, r *http.Request) {
 }
 
 func loadTile(fname string, z, x, y int) ([]byte, error) {
-	db, err := sql.Open("sqlite3", STRATUX_HOME + "/mapdata/" + fname)
+	db, err := sql.Open("sqlite3", STRATUX_HOME + "/mapdata/" + fname + "?mode=ro")
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	stmt, _ := db.Prepare("SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?")
-	defer stmt.Close()
-	rows, err := stmt.Query(z, x, y)
+	rows, err := db.Query("SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?", z, x, y)
 	if err != nil {
-		log.Printf("SQLite read error %s: %s", fname, err.Error())
-		return nil, err
+		log.Printf("Failed to query mbtiles: %s", err.Error())
+		return nil, nil
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -949,7 +975,7 @@ func handleTile(w http.ResponseWriter, r *http.Request) {
 	idx--
 	z, _ := strconv.Atoi(parts[idx])
 	idx--
-	file :=  parts[idx]
+	file, _ := url.QueryUnescape(parts[idx])
 	tileData, err := loadTile(file, z, x, y)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
