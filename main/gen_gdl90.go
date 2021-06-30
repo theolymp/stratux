@@ -1516,7 +1516,7 @@ func gracefulShutdown() {
 	pingKill()
 
 	// Shut down data logging.
-	if dataLogStarted {
+	if isDataLogReady() {
 		closeDataLog()
 	}
 

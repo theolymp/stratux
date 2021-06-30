@@ -12,6 +12,14 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "PreStart",
+            "type": "shell",
+            "command": "killall dump1090 ogn-rx-eu || true",
+            "dependsOn": [
+                "Build"
+            ]
         }
     ]
 }

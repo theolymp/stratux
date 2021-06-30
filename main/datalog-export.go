@@ -12,6 +12,7 @@ import (
 
 type Flightlog struct {
 	LogId       int64
+	LogName     string
 	StartTs     string
 	EndTs       string
 }
@@ -57,6 +58,7 @@ func (this *DbFlightLog) OpenDb() error {
 		// otherwise sqlx calls toLower to map fileds to struct members.. Also don't report unexported fields
 		return s
 	}) 
+	this.db.Exec("PRAGMA foreign_keys = ON")
 	return nil
 }
 
@@ -86,9 +88,9 @@ func (this *DbFlightLog) getMyTrack(bootid int) (chan *TimestampSituation, error
 
 func (this *DbFlightLog) getTrafficTracks(bootid int) (chan *TimestampTraffic, error) {
 	rows, err := this.db.Queryx(`
-	SELECT * FROM timestamp INNER JOIN traffic ON timestamp.id=traffic.timestamp_id
-		WHERE StartupId=? AND SystemClock_value != '' AND traffic.Position_valid=1
-	ORDER BY traffic.Icao_addr, timestamp_id
+		SELECT * FROM timestamp INNER JOIN traffic ON timestamp.id=traffic.timestamp_id
+			WHERE StartupId=? AND SystemClock_value != '' AND traffic.Position_valid=1
+		ORDER BY traffic.Icao_addr, timestamp_id
 	`, bootid)
 	if err != nil {
 		return nil, err
@@ -193,7 +195,7 @@ func (this *DbFlightLog) ExportKml(bootid int, dst io.Writer) error {
 
 func (this *DbFlightLog) GetLogList() ([]Flightlog, error) {
 	rows, err := this.db.Queryx(`
-		SELECT startup.id AS LogId, MIN(SystemClock_value) AS StartTs, MAX(SystemClock_value) AS EndTs
+		SELECT startup.id AS LogId, startup.logname AS LogName, MIN(SystemClock_value) AS StartTs, MAX(SystemClock_value) AS EndTs
 			FROM startup
 		INNER JOIN timestamp t1 ON t1.SystemClock_value != '' AND t1.StartupID=startup.id
 		GROUP BY startup.id
@@ -209,4 +211,15 @@ func (this *DbFlightLog) GetLogList() ([]Flightlog, error) {
 		logs = append(logs, log)
 	}
 	return logs, nil
+}
+
+func (this *DbFlightLog) SetLogName(id int, name string) error {
+	_, err := this.db.Exec("UPDATE startup SET LogName=? WHERE id=?", name, id)
+	return err
+}
+
+// Deletes the requested log, including all entries (via ON DELETE CASCADE)
+func (this *DbFlightLog) DeleteLog(id int) error {
+	_, err := this.db.Exec("DELETE FROM startup WHERE id=?", id)
+	return err
 }

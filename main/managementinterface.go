@@ -45,6 +45,13 @@ type SettingMessage struct {
 	Value   bool   `json:"state"`
 }
 
+type LogExportMessage struct {
+	LogId  int          `json:"logId"`
+	Format string       `json:"format"`
+	Filename string     `json:"filename`
+	IncludeTraffic bool `json:"includeTraffic"`
+}
+
 // Weather updates channel.
 var weatherUpdate *uibroadcaster
 var trafficUpdate *uibroadcaster
@@ -704,7 +711,8 @@ func handleDownloadDBRequest(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/var/log/stratux.sqlite")
 }
 
-func handleGetLogList(w http.ResponseWriter, r *http.Request) {
+func handleLogList(w http.ResponseWriter, r *http.Request) {
+	setNoCache(w)
 	log, _ := GetDbFlightLog()
 	logList, _ := log.GetLogList()
 	asJson, _ := json.Marshal(logList)
@@ -712,14 +720,67 @@ func handleGetLogList(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogExport(w http.ResponseWriter, r *http.Request) {
-	uriparts := strings.Split(r.RequestURI, "/")
-	num, err := strconv.Atoi(uriparts[len(uriparts)-1])
-	if err == nil {
-		w.Header().Set("Content-Disposition", "attachment; filename=stratux.gpx")
-		log, _ := GetDbFlightLog()
-		log.ExportGpx(num, w)
+	var request LogExportMessage
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Failed to read log export request: %s", err.Error())
+		return
+	}
+	err = json.Unmarshal(body, &request)
+	if err != nil {
+		log.Printf("Failed to parse log export request: %s", err.Error())
+		return
+	}
+	
+	// sanitize input
+	if request.Format == "" {
+		request.Format = "gpx"
+	}
+	if request.Filename == "" {
+		request.Filename = "stratux." + request.Format
+	}
+
+	db, err := GetDbFlightLog()
+	if err != nil {
+		log.Printf("Flight log database could not be opened: %s", err.Error())
+		return
+	}
+
+	if request.Format == "gpx" {
+		w.Header().Set("Content-Disposition", "attachment; filename=" + request.Filename)
+		db.ExportGpx(request.LogId, w)
+	} else if request.Format == "kml" {
+		w.Header().Set("Content-Disposition", "attachment; filename=" + request.Filename)
+		db.ExportKml(request.LogId, w)
+	} else if request.Format == "igc" {
+		w.Header().Set("Content-Disposition", "attachment; filename=" + request.Filename)
+		db.ExportIgc(request.LogId, w)
+	} else {
+		log.Printf("Unknown export format: %s", request.Format)
 	}
 }
+
+func handleLogDelete(w http.ResponseWriter, r *http.Request) {
+	idstr := r.URL.Query().Get("id")
+	id, err := strconv.Atoi(idstr)
+	if err != nil {
+		log.Printf("Could not parse log id to delete: %s", idstr)
+	}
+	db, _ := GetDbFlightLog()
+	db.DeleteLog(id)
+}
+
+func handleLogSetName(w http.ResponseWriter, r *http.Request) {
+	idstr := r.URL.Query().Get("id")
+	id, err := strconv.Atoi(idstr)
+	if err != nil {
+		log.Printf("Could not parse log id to delete: %s", idstr)
+	}
+	name := r.URL.Query().Get("name")
+	db, _ := GetDbFlightLog()
+	db.SetLogName(id, name)
+}
+
 
 // Upload an update file.
 func handleUpdatePostRequest(w http.ResponseWriter, r *http.Request) {
@@ -1085,8 +1146,10 @@ func managementInterface() {
 	http.HandleFunc("/deleteahrslogfiles", handleDeleteAHRSLogFiles)
 	http.HandleFunc("/downloadahrslogs", handleDownloadAHRSLogsRequest)
 	http.HandleFunc("/downloaddb", handleDownloadDBRequest)
-	http.HandleFunc("/logExport/getLogList", handleGetLogList)
-	http.HandleFunc("/logExport/", handleLogExport)
+	http.HandleFunc("/flightlog/list", handleLogList)
+	http.HandleFunc("/flightlog/export", handleLogExport)
+	http.HandleFunc("/flightlog/delete", handleLogDelete)
+	http.HandleFunc("/flightlog/setName", handleLogSetName)
 	http.HandleFunc("/tiles/tilesets", handleTilesets)
 	http.HandleFunc("/tiles/", handleTile)
 
