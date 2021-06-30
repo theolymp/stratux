@@ -315,6 +315,7 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 			
 
 		reconfigureOgnTracker := false
+		signalFancontrol := false
 
 		for key, val := range msg {
 			// log.Printf("handleSettingsSetRequest:json: testing for key:%s of type %s\n", key, reflect.TypeOf(val))
@@ -428,7 +429,7 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 			case "OGNTxPower":
 				reconfigureOgnTracker = true
 			case "PWMDutyMin":
-				exec.Command("killall", "-SIGUSR1", "fancontrol").Run();
+				signalFancontrol = true
 
 			//default:
 			//	log.Printf("handleSettingsSetRequest:json: unrecognized key:%s\n", key)
@@ -438,6 +439,9 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 		applyNetworkSettings(false)
 		if reconfigureOgnTracker {
 			configureOgnTrackerFromSettings()
+		}
+		if signalFancontrol {
+			exec.Command("killall", "-SIGUSR1", "fancontrol").Run();
 		}
 	}
 }
