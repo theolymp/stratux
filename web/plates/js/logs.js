@@ -66,6 +66,7 @@ function LogsCtrl($scope, $state, $http) {
 	}
 
 	$scope.deleteLog = function(log) {
+		log.Deleting = true;
 		$http.get(URL_FLIGHTLOG_DELETE, {params: {"id": log.LogId}}).then(
 			function() {
 				let idx = $scope.logList.indexOf(log);
@@ -73,6 +74,6 @@ function LogsCtrl($scope, $state, $http) {
 					$scope.logList.splice(idx, 1);
 				$scope.apply();
 			}
-		)
+		);
 	}
 }

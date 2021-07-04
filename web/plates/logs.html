@@ -7,9 +7,9 @@
         <div class="panel-body">
             <div class="row">
                 <div class = "col-sm-7">
-                    <span class="col-xs-6"><strong>Log Name</strong></span>
-                    <span class="col-xs-3 text-right"><strong>Start</strong></span>
-                    <span class="col-xs-3 text-right"><strong>End</strong></span>
+                    <span class="col-xs-8"><strong>Log Name</strong></span>
+                    <span class="col-xs-2 text-right"><strong>Start</strong></span>
+                    <span class="col-xs-2 text-right"><strong>End</strong></span>
                 </div>
                 <div class="col-sm-5">
                     <span class="col-xs-6">&nbsp;</span>
@@ -25,10 +25,10 @@
                 <div class="separator"></div>
 
                 <div class="col-sm-7">
-                    <input class="col-xs-6" type="text" ng-show="log.IsEditing" ng-model="log.LogName" ng-blur="updateLogName(log, log.Name)" />
-                    <span class="col-xs-6" ng-show="!log.IsEditing" ng-click="startEditing(log)">{{log.LogName}}</span>
-                    <span class="col-xs-3 text-right">{{log.StartDateReadable}}<br/>{{log.StartTimeReadable}}</span>
-                    <span class="col-xs-3 text-right">{{log.EndDateReadable}}<br/>{{log.EndTimeReadable}}</span>
+                    <span class="col-xs-8"><input class="col-xs-12" type="text" ng-show="log.IsEditing" ng-model="log.LogName" ng-blur="updateLogName(log, log.Name)" /></span>
+                    <span class="col-xs-8" ng-show="!log.IsEditing" ng-click="startEditing(log)">{{log.LogName}}</span>
+                    <span class="col-xs-2 text-right">{{log.StartDateReadable}}<br/>{{log.StartTimeReadable}}</span>
+                    <span class="col-xs-2 text-right">{{log.EndDateReadable}}<br/>{{log.EndTimeReadable}}</span>
                 </div>
 
                 <div class="col-sm-5">
@@ -37,15 +37,20 @@
                     <span class="col-xs-1 text-center"><span ng-show="log.HasStatus">&nbsp;&#x2705;</span></span>
                     <span class="col-xs-1 text-center"><span ng-show="log.HasTraffic">&nbsp;&#x2705;</span></span>
 
-                    <select class="col-xs-2 custom-select" ng-change="downloadLog(log)" ng-model="log.ExportFormat">
-                        <option value=""></option>
-                        <option value="gpx" ng-if="log.HasSituation">GPX</option>
-                        <option value="gpx;traffic" ng-if="log.HasTraffic">GPX+Traffic</option>
-                        <option value="kml" ng-if="log.HasSituation">KML</option>
-                        <option value="kml;traffic" ng-if="log.HasTraffic">KML+Traffic</option>
-                        <option value="igc" ng-if="log.HasSituation">IGC</option>
-                    </select>
-                    <button class="col-xs-1" ng-click="deleteLog(log)">&#x1F5D1;</button>
+                    <span class="col-xs-2">
+                        <select class="col-xs-12 custom-select" ng-change="downloadLog(log)" ng-model="log.ExportFormat">
+                            <option value=""></option>
+                            <option value="gpx" ng-if="log.HasSituation">GPX</option>
+                            <option value="gpx;traffic" ng-if="log.HasTraffic">GPX+Traffic</option>
+                            <option value="kml" ng-if="log.HasSituation">KML</option>
+                            <option value="kml;traffic" ng-if="log.HasTraffic">KML+Traffic</option>
+                            <option value="igc" ng-if="log.HasSituation">IGC</option>
+                        </select>
+                    </span>
+                    <span class="col-xs-1 text-center">
+                        <button ng-show="!log.Deleting" ng-click="deleteLog(log)">&#x1F5D1;</button>
+                        <div class="loader" ng-show="log.Deleting"></div>
+                    </span>
                 </div>
             </div>
         </div>
