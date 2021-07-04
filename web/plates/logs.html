@@ -1,20 +1,75 @@
-<div class="list-group text-center">
-    <div class="list-group-item list-group-item-home">
-        <h2>Logs</h2>
-    </div>
-    <div class="list-group-item list-group-item-home">
-        <div>
-            <i class="fa fa-cloud feature-icon text-primary"></i>
+<div class="col-sm-12">
+	<div class="panel panel-default">
+        <div class="panel-heading">
+            <span class="panel_label">Flight Logs</span>
         </div>
-        <div>
-            <a target="_blank" href="../logs/stratux.log">stratux.log</a>
-        </div>
-        <div>
-                <a target="_blank" href="../logs/">System, AHRS, and replay logs</a>
+
+        <div class="panel-body">
+            <div class="row">
+                <div class = "col-sm-7">
+                    <span class="col-xs-6"><strong>Log Name</strong></span>
+                    <span class="col-xs-3 text-right"><strong>Start</strong></span>
+                    <span class="col-xs-3 text-right"><strong>End</strong></span>
+                </div>
+                <div class="col-sm-5">
+                    <span class="col-xs-6">&nbsp;</span>
+                    <span class="col-xs-1 text-center"><strong>Sit.</strong></span>
+                    <span class="col-xs-1 text-center"><strong>Stat.</strong></span>
+                    <span class="col-xs-1 text-center"><strong>Traf.</strong></span>
+                    <span class="col-xs-2 text-right"><strong>Export</strong></span>
+                    <span class="col-xs-1 text-right">&nbsp;</span>
+                </div>
+            </div>
+
+            <div class="row" ng-repeat="log in logList | orderBy:LogId:true">
+                <div class="separator"></div>
+
+                <div class="col-sm-7">
+                    <input class="col-xs-6" type="text" ng-show="log.IsEditing" ng-model="log.LogName" ng-blur="updateLogName(log, log.Name)" />
+                    <span class="col-xs-6" ng-show="!log.IsEditing" ng-click="startEditing(log)">{{log.LogName}}</span>
+                    <span class="col-xs-3 text-right">{{log.StartDateReadable}}<br/>{{log.StartTimeReadable}}</span>
+                    <span class="col-xs-3 text-right">{{log.EndDateReadable}}<br/>{{log.EndTimeReadable}}</span>
+                </div>
+
+                <div class="col-sm-5">
+                    <span class="col-xs-6">&nbsp;</span>
+                    <span class="col-xs-1 text-center"><span ng-show="log.HasSituation">&nbsp;&#x2705;</span></span>
+                    <span class="col-xs-1 text-center"><span ng-show="log.HasStatus">&nbsp;&#x2705;</span></span>
+                    <span class="col-xs-1 text-center"><span ng-show="log.HasTraffic">&nbsp;&#x2705;</span></span>
+
+                    <select class="col-xs-2 custom-select" ng-change="downloadLog(log)" ng-model="log.ExportFormat">
+                        <option value=""></option>
+                        <option value="gpx" ng-if="log.HasSituation">GPX</option>
+                        <option value="gpx;traffic" ng-if="log.HasTraffic">GPX+Traffic</option>
+                        <option value="kml" ng-if="log.HasSituation">KML</option>
+                        <option value="kml;traffic" ng-if="log.HasTraffic">KML+Traffic</option>
+                        <option value="igc" ng-if="log.HasSituation">IGC</option>
+                    </select>
+                    <button class="col-xs-1" ng-click="deleteLog(log)">&#x1F5D1;</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
-<div class="col-sm-6">
-    <pre>{{userAgent}}</pre>
-    <pre>{{deviceViewport}}</pre>
+<div class="col-sm-12">
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <span class="panel_label">System logs</span>
+        </div>
+        <div class="panel-body">
+            <div class="list-group text-center">
+                <!--<div class="list-group-item list-group-item-home">-->
+                    <div>
+                        <i class="fa fa-cloud feature-icon text-primary"></i>
+                    </div>
+                    <div>
+                        <a target="_blank" href="../logs/stratux.log">stratux.log</a>
+                    </div>
+                    <div>
+                            <a target="_blank" href="../logs/">System, AHRS, and replay logs</a>
+                    </div>
+                <!--</div>-->
+            </div>
+        </div>
+    </div>
 </div>

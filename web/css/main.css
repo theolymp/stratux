@@ -305,9 +305,13 @@ everything below this comment represents tweaks to the mobile-angular-uis CSS
 	font-style: normal;
 }
 
-.row {
+.row, .log-row {
 	margin-left: -6px;
 	margin-right: -6px;
+}
+
+.log-row {
+	min-height: 48px;
 }
 
 .col-xs-1,

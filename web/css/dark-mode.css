@@ -182,3 +182,7 @@ select {
 .modal-footer {
 	border-color: #9b9b9b;
 }
+
+.fake-btn {
+	background-color:#444
+}

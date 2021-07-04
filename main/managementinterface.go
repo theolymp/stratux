@@ -46,10 +46,10 @@ type SettingMessage struct {
 }
 
 type LogExportMessage struct {
-	LogId  int          `json:"logId"`
-	Format string       `json:"format"`
-	Filename string     `json:"filename`
-	IncludeTraffic bool `json:"includeTraffic"`
+	LogId  int
+	Format string
+	Filename string
+	IncludeTraffic bool
 }
 
 // Weather updates channel.
@@ -720,24 +720,29 @@ func handleLogList(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogExport(w http.ResponseWriter, r *http.Request) {
-	var request LogExportMessage
-	body, err := ioutil.ReadAll(r.Body)
+	//setNoCache(w)
+	query := r.URL.Query()
+	idstr := query.Get("id")
+	format := query.Get("format")
+	filename := query.Get("filename")
+	traffic := query.Get("traffic")
+
+	logId, err := strconv.Atoi(idstr)
 	if err != nil {
-		log.Printf("Failed to read log export request: %s", err.Error())
+		log.Printf("could not parse requested log id: %s", idstr)
 		return
 	}
-	err = json.Unmarshal(body, &request)
-	if err != nil {
-		log.Printf("Failed to parse log export request: %s", err.Error())
-		return
+	includeTraffic, err := strconv.ParseBool(traffic)
+
+	if format == "" {
+		format = "gpx"
 	}
-	
-	// sanitize input
-	if request.Format == "" {
-		request.Format = "gpx"
+	if filename == "" {
+		filename = idstr
 	}
-	if request.Filename == "" {
-		request.Filename = "stratux." + request.Format
+
+	if !strings.HasSuffix(filename, format) {
+		filename = filename + "." + format
 	}
 
 	db, err := GetDbFlightLog()
@@ -746,21 +751,25 @@ func handleLogExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if request.Format == "gpx" {
-		w.Header().Set("Content-Disposition", "attachment; filename=" + request.Filename)
-		db.ExportGpx(request.LogId, w)
-	} else if request.Format == "kml" {
-		w.Header().Set("Content-Disposition", "attachment; filename=" + request.Filename)
-		db.ExportKml(request.LogId, w)
-	} else if request.Format == "igc" {
-		w.Header().Set("Content-Disposition", "attachment; filename=" + request.Filename)
-		db.ExportIgc(request.LogId, w)
+	if format == "gpx" {
+		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+		w.Header().Set("Content-Type", "application/gpx+xml")
+		db.ExportGpx(logId, includeTraffic, w)
+	} else if format == "kml" {
+		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+		w.Header().Set("Content-Type", "application/vnd.google-earth.kml+xml")
+		db.ExportKml(logId, includeTraffic, w)
+	} else if format == "igc" {
+		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		db.ExportIgc(logId, w)
 	} else {
-		log.Printf("Unknown export format: %s", request.Format)
+		log.Printf("Unknown export format: %s", format)
 	}
 }
 
 func handleLogDelete(w http.ResponseWriter, r *http.Request) {
+	setNoCache(w)
 	idstr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idstr)
 	if err != nil {
@@ -771,6 +780,7 @@ func handleLogDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogSetName(w http.ResponseWriter, r *http.Request) {
+	setNoCache(w)
 	idstr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idstr)
 	if err != nil {

@@ -1290,7 +1290,7 @@ func defaultSettings() {
 		{Conn: nil, Ip: "", Port: 49002, Capability: NETWORK_POSITION_FFSIM | NETWORK_AHRS_FFSIM},
 	}
 	globalSettings.DEBUG = false
-	globalSettings.ReplayLogResolutionMs = 500
+	globalSettings.ReplayLogResolutionMs = 2000
 
 	globalSettings.AHRSLog = false
 	globalSettings.IMUMapping = [2]int{-1, 0}

@@ -146,7 +146,7 @@ var sqlTypeMap = map[reflect.Kind]string{
 	reflect.UnsafePointer: "notsupported",
 }
 
-func makeTable(i interface{}, tbl string, db *sql.DB) {
+func makeTable(i interface{}, tbl string, db *sql.Tx) {
 	val := reflect.ValueOf(i)
 
 	fields := make([]string, 0)
@@ -203,7 +203,7 @@ func makeTable(i interface{}, tbl string, db *sql.DB) {
 		Reads insertBatch and insertBatchIfs. This is called after a group of insertData() calls.
 */
 
-func bulkInsert(tbl string, db *sql.DB) (res sql.Result, err error) {
+func bulkInsert(tbl string, db *sql.Tx) (res sql.Result, err error) {
 	if _, ok := insertString[tbl]; !ok {
 		return nil, errors.New("no insert statement")
 	}
@@ -263,7 +263,7 @@ func bulkInsert(tbl string, db *sql.DB) (res sql.Result, err error) {
 var insertString map[string]string // INSERT INTO tbl (col1, col2, ...) VALUES(?, ?, ...). Only for one value.
 var insertBatchIfs map[string][][]interface{}
 
-func insertData(i interface{}, tbl string, db *sql.DB, ts_num int64) int64 {
+func insertData(i interface{}, tbl string, db *sql.Tx, ts_num int64) int64 {
 	val := reflect.ValueOf(i)
 
 	keys := make([]string, 0)
@@ -336,8 +336,6 @@ func dataLogWriter(db *sql.DB) {
 	rowsQueuedForWrite := make([]DataLogRow, 0)
 	// keyed rows - only write them once per time unit
 	keyedRowsQueuedForWrite := make(map[string]DataLogRow)
-	var transaction *sql.Tx
-	lastCommitTime :=  stratuxClock.Time
 
 	for r := range dataLogWriteChan {
 		// Accept timestamped row.
@@ -350,6 +348,13 @@ func dataLogWriter(db *sql.DB) {
 		if stratuxClock.Since(lastWriteTs.StratuxClock_value) < time.Duration(globalSettings.ReplayLogResolutionMs) * time.Millisecond {
 			// don't write yet
 			continue
+		}
+
+		// Start transaction
+		transaction, err := db.Begin()
+		if err != nil {
+			log.Printf("db.Begin() error: %s\n", err.Error())
+			break // from select {}
 		}
 
 		// perform write
@@ -365,7 +370,7 @@ func dataLogWriter(db *sql.DB) {
 			ts.SystemClock_value = time.Now().UTC()
 		}
 		ts.StartupID = stratuxStartupID
-		ts.Id = insertData(ts, "timestamp", db, 0)
+		ts.Id = insertData(ts, "timestamp", transaction, 0)
 		lastWriteTs = ts
 		
 		// Append the remaining keyed values
@@ -380,39 +385,28 @@ func dataLogWriter(db *sql.DB) {
 		// Write the buffered rows. This will block while it is writing.
 		// Save the names of the tables affected so that we can run bulkInsert() on after the insertData() calls.
 		tblsAffected := make(map[string]bool)
-		// Start transaction.
-		if transaction == nil {
-			var err error
-			transaction, err = db.Begin()
-			if err != nil {
-				log.Printf("db.Begin() error: %s\n", err.Error())
-				break // from select {}
-			}
-		}
+
 		for _, r := range rowsQueuedForWrite {
 			tblsAffected[r.tbl] = true
-			insertData(r.data, r.tbl, db, ts.Id)
+			insertData(r.data, r.tbl, transaction, ts.Id)
 		}
 		// Do the bulk inserts.
 		for tbl, _ := range tblsAffected {
-			bulkInsert(tbl, db)
+			bulkInsert(tbl, transaction)
 		}
-		// Close the transaction every 10s.. the sync() sometimes has >1s of delay, so we don't want to do it too often
-		committed := false
-		if stratuxClock.Since(lastCommitTime) >= 10 * time.Second {
-			transaction.Commit()
-			transaction = nil
-			lastCommitTime = stratuxClock.Time
-			committed = true
-		}
+
+		transaction.Commit()
+		transaction = nil
+
 		// Zero the queues.
 		keyedRowsQueuedForWrite = make(map[string]DataLogRow)
 		rowsQueuedForWrite = make([]DataLogRow, 0) 
 		timeElapsed := stratuxClock.Since(timeStart)
 
 		durationSecs := float64(timeElapsed.Milliseconds()) / 1000.0
-		if (committed && durationSecs > 10) || (!committed && uint32(durationSecs * 1000) > globalSettings.ReplayLogResolutionMs) {
-			dataLogCriticalErr := fmt.Errorf("WARNING! SQLite logging is behind. Last write took %.1f seconds (commit=%t)", durationSecs, committed)
+		//log.Printf("duration sec: %.1fms", durationSecs * 1000.0)
+		if uint32(durationSecs * 1000) > globalSettings.ReplayLogResolutionMs {
+			dataLogCriticalErr := fmt.Errorf("WARNING! SQLite logging is behind. Last write took %.1f seconds", durationSecs)
 			log.Printf(dataLogCriticalErr.Error())
 			addSystemError(dataLogCriticalErr)
 		}
@@ -422,15 +416,8 @@ func dataLogWriter(db *sql.DB) {
 	shutdownCompleteChan <- true
 }
 
-func dataLog() {
-	log.Printf("datalog.go: dataLog() started\n")
-
-	db, err := sql.Open("sqlite3", dataLogFilef)
-	if err != nil {
-		log.Printf("sql.Open(): %s\n", err.Error())
-	}
-
-	_, err = db.Exec("PRAGMA journal_mode=WAL")
+func InitDbFlightlog(db *sql.DB) {
+	_, err := db.Exec("PRAGMA journal_mode=WAL")
 	if err != nil {
 		log.Printf("db.Exec('PRAGMA journal_mode=WAL') err: %s\n", err.Error())
 	}
@@ -442,33 +429,45 @@ func dataLog() {
 	//}
 
 	//log.Printf("Starting dataLogWriter\n") // REMOVE -- DEBUG
-	
+
+	tx, _ := db.Begin()
 
 	// Do we need to create/update the database schema?
-	makeTable(StratuxTimestamp{}, "timestamp", db)
-	makeTable(mySituation, "mySituation", db)
-	makeTable(globalStatus, "status", db)
-	makeTable(globalSettings, "settings", db)
-	makeTable(TrafficInfo{}, "traffic", db)
-	makeTable(msg{}, "messages", db)
-	makeTable(esmsg{}, "es_messages", db)
-	makeTable(Dump1090TermMessage{}, "dump1090_terminal", db)
-	makeTable(gpsPerfStats{}, "gps_attitude", db)
-	makeTable(StratuxStartup{}, "startup", db)
+	makeTable(StratuxTimestamp{}, "timestamp", tx)
+	makeTable(mySituation, "mySituation", tx)
+	makeTable(globalStatus, "status", tx)
+	makeTable(globalSettings, "settings", tx)
+	makeTable(TrafficInfo{}, "traffic", tx)
+	makeTable(msg{}, "messages", tx)
+	makeTable(esmsg{}, "es_messages", tx)
+	makeTable(Dump1090TermMessage{}, "dump1090_terminal", tx)
+	makeTable(gpsPerfStats{}, "gps_attitude", tx)
+	makeTable(StratuxStartup{}, "startup", tx)
 
 	// Create indices
-	db.Exec("CREATE INDEX IF NOT EXISTS timestamp_index ON timestamp(StartupID, SystemClock_value)")
-	db.Exec("CREATE INDEX IF NOT EXISTS situation_index ON mySituation(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS status_index ON status(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS settings_index ON settings(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS traffic_index ON traffic(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS messages_index ON messages(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS es_messages_index ON es_messages(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS dump1090_terminal_index ON dump1090_terminal(timestamp_id)")
-	db.Exec("CREATE INDEX IF NOT EXISTS gps_attitude_index ON gps_attitude(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS timestamp_index ON timestamp(StartupID, SystemClock_value)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS situation_index ON mySituation(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS status_index ON status(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS settings_index ON settings(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS traffic_index ON traffic(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS messages_index ON messages(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS es_messages_index ON es_messages(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS dump1090_terminal_index ON dump1090_terminal(timestamp_id)")
+	tx.Exec("CREATE INDEX IF NOT EXISTS gps_attitude_index ON gps_attitude(timestamp_id)")
 
 	// The first entry to be created is the "startup" entry.
-	stratuxStartupID = insertData(StratuxStartup{}, "startup", db, 0)
+	stratuxStartupID = insertData(StratuxStartup{}, "startup", tx, 0)
+	tx.Commit()
+}
+
+func dataLog() {
+	log.Printf("datalog.go: dataLog() started\n")
+
+	db, err := sql.Open("sqlite3", dataLogFilef)
+	if err != nil {
+		log.Printf("sql.Open(): %s\n", err.Error())
+	}
+	InitDbFlightlog(db)
 	shutdownCompleteChan = make(chan bool, 1)
 	dataLogWriteChan = make(chan DataLogRow, 10240)
 	go dataLogWriter(db)

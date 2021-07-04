@@ -24,6 +24,10 @@ var URL_UPDATE_UPLOAD       = URL_HOST_PROTOCOL + URL_HOST_BASE + "/updateUpload
 var URL_GET_SITUATION       = URL_HOST_PROTOCOL + URL_HOST_BASE + "/getSituation";
 var URL_GET_TILESETS        = URL_HOST_PROTOCOL + URL_HOST_BASE + "/tiles/tilesets";
 var URL_GET_TILE            = URL_HOST_PROTOCOL + URL_HOST_BASE + "/tiles";
+var URL_GET_FLIGHTLOG_LIST  = URL_HOST_PROTOCOL + URL_HOST_BASE + "/flightlog/list";
+var URL_FLIGHTLOG_RENAME    = URL_HOST_PROTOCOL + URL_HOST_BASE + "/flightlog/setName";
+var URL_FLIGHTLOG_DOWNLOAD  = URL_HOST_PROTOCOL + URL_HOST_BASE + "/flightlog/export";
+var URL_FLIGHTLOG_DELETE    = URL_HOST_PROTOCOL + URL_HOST_BASE + "/flightlog/delete";
 
 
 var URL_DEVELOPER_WS        = "ws://" + URL_HOST_BASE + "/developer";
