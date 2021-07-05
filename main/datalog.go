@@ -455,8 +455,6 @@ func InitDbFlightlog(db *sql.DB) {
 	tx.Exec("CREATE INDEX IF NOT EXISTS dump1090_terminal_index ON dump1090_terminal(timestamp_id)")
 	tx.Exec("CREATE INDEX IF NOT EXISTS gps_attitude_index ON gps_attitude(timestamp_id)")
 
-	// The first entry to be created is the "startup" entry.
-	stratuxStartupID = insertData(StratuxStartup{}, "startup", tx, 0)
 	tx.Commit()
 }
 
@@ -468,6 +466,11 @@ func dataLog() {
 		log.Printf("sql.Open(): %s\n", err.Error())
 	}
 	InitDbFlightlog(db)
+	// The first entry to be created is the "startup" entry.
+	tx, err := db.Begin()
+	stratuxStartupID = insertData(StratuxStartup{}, "startup", tx, 0)
+	tx.Commit()
+
 	shutdownCompleteChan = make(chan bool, 1)
 	dataLogWriteChan = make(chan DataLogRow, 10240)
 	go dataLogWriter(db)
