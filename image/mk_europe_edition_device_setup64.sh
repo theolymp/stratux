@@ -21,11 +21,13 @@ ln -s /bin/true /root/fake/deb-systemd-helper
 mkdir -p /proc/sys/vm/
 
 apt update
-#PATH=/root/fake:$PATH apt dist-upgrade --yes
+PATH=/root/fake:$PATH apt dist-upgrade --yes
 apt clean
 
 PATH=/root/fake:$PATH apt install --yes libjpeg62-turbo-dev libconfig9 rpi-update hostapd isc-dhcp-server tcpdump git cmake \
     libusb-1.0-0-dev build-essential autoconf libtool i2c-tools libfftw3-dev libncurses-dev python-serial jq
+
+PATH=/root/fake:$PATH apt install --yes parted zip unzip zerofree
 
 # try to reduce writing to SD card as much as possible, so they don't get bricked when yanking the power cable
 # Disable swap...
@@ -95,9 +97,9 @@ cd /root && rm -rf kalibrate-rtl
 
 # Install golang
 cd /root
-wget https://golang.org/dl/go1.16.1.linux-arm64.tar.gz
-tar xzf go1.16.1.linux-arm64.tar.gz
-rm go1.16.1.linux-arm64.tar.gz
+wget https://golang.org/dl/go1.16.6.linux-arm64.tar.gz
+tar xzf *.gz
+rm *.gz
 
 # Compile stratux
 cd /root/stratux
@@ -163,9 +165,13 @@ echo -e "\n/dev/sda1             /var/log        auto    defaults,nofail,noatime
 sed -i /boot/cmdline.txt -e "s/console=serial0,[0-9]\+ //"
 
 #Set the keyboard layout to US.
-sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"us\"/"
+#sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"us\"/"
+
+#Set the keyboard layout to DE and pc101
+sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"de\"/"
+sed -i /etc/default/keyboard -e "/^XKBMODEL/s/\".*\"/\"pc101\"/"
 
 # Clean up source tree - we don't need it at runtime
-rm -r /root/stratux
+#rm -r /root/stratux
 
 
