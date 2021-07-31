@@ -62,8 +62,10 @@ type Dump1090TermMessage struct {
 func (e *ES) read() {
 	defer e.wg.Done()
 	log.Println("Entered ES read() ...")
+// command-line for dump1090-fa v5.0
 	cmd := exec.Command(STRATUX_HOME + "/bin/dump1090", "--oversample", "--net-stratux-port", "30006",  "--net", "--device-index", strconv.Itoa(e.indexID), "--ppm", strconv.Itoa(e.ppm))
-//	cmd := exec.Command(STRATUX_HOME + "/bin/dump1090", "--adaptive-burst", "--adaptive-range", "--oversample", "--net-stratux-port", "30006",  "--net", "--device-index", strconv.Itoa(e.indexID), "--ppm", strconv.Itoa(e.ppm)) // reduced gain
+// command-line for dump1090-fa v6.0
+// cmd := exec.Command(STRATUX_HOME + "/bin/dump1090", "--adaptive-burst", "--adaptive-range", "--adaptive-max-gain", "35", "--net-stratux-port", "30006",  "--net", "--device-index", strconv.Itoa(e.indexID), "--ppm", strconv.Itoa(e.ppm))
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
