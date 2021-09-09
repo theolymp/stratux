@@ -68,7 +68,6 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
         $scope.WiFiPassphrase = settings.WiFiPassphrase;
         $scope.WiFiSecurityEnabled = settings.WiFiSecurityEnabled;
         $scope.WiFiChannel = settings.WiFiChannel;
-		$scope.WiFiSmartEnabled = settings.WiFiSmartEnabled;
 		$scope.WiFiIPAddress = settings.WiFiIPAddress;
 
 		$scope.WiFiMode = settings.WiFiMode.toString();
@@ -76,6 +75,7 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 
 		$scope.WiFiClientSSID = settings.WiFiClientSSID;
 		$scope.WiFiClientPassword = settings.WiFiClientPassword;
+		$scope.WiFiInternetPassThroughEnabled = settings.WiFiInternetPassThroughEnabled;
 
         $scope.Channels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
@@ -356,12 +356,12 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
                 "WiFiSecurityEnabled" : $scope.WiFiSecurityEnabled,
                 "WiFiPassphrase" : $scope.WiFiPassphrase,
                 "WiFiChannel" : parseInt($scope.WiFiChannel),
-				"WiFiSmartEnabled": $scope.WiFiSmartEnabled,
 				"WiFiIPAddress" : $scope.WiFiIPAddress,
 				"WiFiMode" : parseInt($scope.WiFiMode),
 				"WiFiDirectPin": $scope.WiFiDirectPin,
 				"WiFiClientSSID": $scope.WiFiClientSSID,
-				"WiFiClientPassword": $scope.WiFiClientPassword
+				"WiFiClientPassword": $scope.WiFiClientPassword,
+				"WiFiInternetPassThroughEnabled": $scope.WiFiInternetPassThroughEnabled
             };
 
             // console.log(angular.toJson(newsettings));
@@ -372,6 +372,14 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
         }
     };
 
+	$scope.wifiModeStr = function() {
+		switch(parseInt($scope.WiFiMode)) {
+			case 0: return "AP";
+			case 1: return "WiFi-Direct";
+			case 2: return "AP+Client";
+		}
+		return "???";
+	}
 
 	$scope.updateOgnTrackerConfig = function(action) {
 		var newsettings = {
@@ -391,7 +399,7 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 	}
 }
 
-function isValidSSID(str) { return /^[a-zA-Z0-9()_-]{1,32}$/g.test(str); }
+function isValidSSID(str) { return /^[a-zA-Z0-9() \._-]{1,32}$/g.test(str); }
 function isValidWPA(str) { return /^[\u0020-\u007e]{8,63}$/g.test(str); }
 function isValidPin(str) { return /^([\d]{4}|[\d]{8})$/g.test(str); }
 

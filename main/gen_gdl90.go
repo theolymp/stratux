@@ -1187,7 +1187,6 @@ type settings struct {
 	WiFiChannel          int
 	WiFiSecurityEnabled  bool
 	WiFiPassphrase       string
-	WiFiSmartEnabled     bool // "Smart WiFi" - disables the default gateway for iOS.
 	NoSleep              bool
 
 	WiFiMode             int
@@ -1195,6 +1194,8 @@ type settings struct {
 	WiFiIPAddress        string
 	WiFiClientSSID       string
 	WiFiClientPassword   string
+	WiFiInternetPassThroughEnabled bool
+
 	SkyDemonAndroidHack  bool
 	EstimateBearinglessDist bool
 	RadarLimits          int

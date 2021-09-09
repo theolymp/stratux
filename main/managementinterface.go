@@ -461,8 +461,6 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 						setWifiSecurityEnabled(val.(bool))
 					case "WiFiPassphrase":
 						setWifiPassphrase(val.(string))
-					case "WiFiSmartEnabled":
-						setWifiSmartEnabled(val.(bool))
 					case "WiFiIPAddress":
 						setWifiIPAddress(val.(string))
 					case "WiFiMode":
@@ -473,6 +471,8 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 						setWifiClientSSID(val.(string))
 					case "WiFiClientPassword":
 						setWifiClientPassword(val.(string))
+					case "WiFiInternetPassThroughEnabled":
+						setWifiInternetPassthroughEnabled(val.(bool))
 					case "SkyDemonAndroidHack":
 						globalSettings.SkyDemonAndroidHack = val.(bool)
 					case "EstimateBearinglessDist":
