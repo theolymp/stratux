@@ -106,7 +106,7 @@ cd /root && rm -rf kalibrate-rtl
 
 # Install golang
 cd /root
-wget https://golang.org/dl/go1.16.7.linux-arm64.tar.gz
+wget https://golang.org/dl/go1.17.linux-arm64.tar.gz
 tar xzf *.gz
 rm *.gz
 
