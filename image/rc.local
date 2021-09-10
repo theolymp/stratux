@@ -26,6 +26,14 @@ fi
 # try to fetch latest ogn database
 (sleep 60; wget -O /opt/stratux/ogn/ddb.json http://ddb.glidernet.org/download/?j=1) &
 
+# Provide AssistNow Online script, replace <myToken> with your actual ublox Token, select version according to ublox chip
+#(sleep 60; python3 /root/ublox-agps/u-blox_agps_legacy.py -t <myToken> -d /dev/ublox5)
+#(sleep 60; python3 /root/ublox-agps/u-blox_agps_legacy.py -t <myToken> -d /dev/ublox6)
+#(sleep 60; python3 /root/ublox-agps/u-blox_agps_legacy.py -t <myToken> -d /dev/ublox7)
+#(sleep 60; python3 /root/ublox-agps/u-blox_agps.py -t <myToken> -d /dev/ublox8)
+#(sleep 60; python3 /root/ublox-agps/u-blox_agps.py -t <myToken> -d /dev/ublox9)
+#(sleep 60; python3 /root/ublox-agps/u-blox_agps.py -t <myToken> -d /dev/ttyUSB0)
+
 # Provide startup script for Tom Bric's radar display, default=disabled
 #(sleep 60; python3 /root/stratux-radar-display/main/radar.py -z -d Oled_1in5 -c $_IP) &
 #(sleep 60; python3 /root/stratux-radar-display/main/radar.py -z -d Epaper_3in7 -c $_IP) &
