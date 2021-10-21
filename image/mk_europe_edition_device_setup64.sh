@@ -175,8 +175,8 @@ sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"de\"/"
 sed -i /etc/default/keyboard -e "/^XKBMODEL/s/\".*\"/\"pc101\"/"
 
 # Set hostname
-echo "stratux" > /etc/hostname
-sed -i /etc/hosts -e "s/raspberrypi/stratux/g"
+#echo "stratux" > /etc/hostname
+#sed -i /etc/hosts -e "s/raspberrypi/stratux/g"
 
 # Clean up source tree - we don't need it at runtime
 #rm -r /root/stratux
