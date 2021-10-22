@@ -27,6 +27,14 @@ apt clean
 PATH=/root/fake:$PATH apt install --yes libjpeg62-turbo-dev libconfig9 rpi-update dnsmasq tcpdump git cmake \
     libusb-1.0-0-dev build-essential autoconf libtool i2c-tools libfftw3-dev libncurses-dev python-serial jq ifplugd
 
+# Downgrade to older brcm wifi firmware - the new one seems to be buggy in AP+Client mode
+# see https://github.com/raspberrypi/firmware/issues/1463
+# TODO: disabled again. The old version seems to be even less reliable and drops a lot of packets for some clients.
+#wget http://archive.raspberrypi.org/debian/pool/main/f/firmware-nonfree/firmware-brcm80211_20190114-1+rpt4_all.deb
+#dpkg -i firmware-brcm80211_20190114-1+rpt4_all.deb
+#rm firmware-brcm80211_20190114-1+rpt4_all.deb
+#apt-mark hold firmware-brcm80211
+
 PATH=/root/fake:$PATH apt install --yes parted zip unzip zerofree
 
 # try to reduce writing to SD card as much as possible, so they don't get bricked when yanking the power cable
