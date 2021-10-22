@@ -21,13 +21,19 @@ ln -s /bin/true /root/fake/deb-systemd-helper
 mkdir -p /proc/sys/vm/
 
 apt update
-PATH=/root/fake:$PATH apt dist-upgrade --yes
+#PATH=/root/fake:$PATH apt dist-upgrade --yes
 apt clean
 
 PATH=/root/fake:$PATH apt install --yes libjpeg62-turbo-dev libconfig9 rpi-update dnsmasq tcpdump git cmake \
     libusb-1.0-0-dev build-essential autoconf libtool i2c-tools libfftw3-dev libncurses-dev python-serial jq ifplugd
 
-PATH=/root/fake:$PATH apt install --yes parted zip unzip zerofree
+# Downgrade to older brcm wifi firmware - the new one seems to be buggy in AP+Client mode
+# see https://github.com/raspberrypi/firmware/issues/1463
+# TODO: disabled again. The old version seems to be even less reliable and drops a lot of packets for some clients.
+#wget http://archive.raspberrypi.org/debian/pool/main/f/firmware-nonfree/firmware-brcm80211_20190114-1+rpt4_all.deb
+#dpkg -i firmware-brcm80211_20190114-1+rpt4_all.deb
+#rm firmware-brcm80211_20190114-1+rpt4_all.deb
+#apt-mark hold firmware-brcm80211
 
 # try to reduce writing to SD card as much as possible, so they don't get bricked when yanking the power cable
 # Disable swap...
@@ -168,17 +174,13 @@ echo -e "\n/dev/sda1             /var/log        auto    defaults,nofail,noatime
 sed -i /boot/cmdline.txt -e "s/console=serial0,[0-9]\+ /systemd.restore_state=0 rfkill.default_state=1 /"
 
 #Set the keyboard layout to US.
-#sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"us\"/"
-
-#Set the keyboard layout to DE and pc101
-sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"de\"/"
-sed -i /etc/default/keyboard -e "/^XKBMODEL/s/\".*\"/\"pc101\"/"
+sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"us\"/"
 
 # Set hostname
-#echo "stratux" > /etc/hostname
-#sed -i /etc/hosts -e "s/raspberrypi/stratux/g"
+echo "stratux" > /etc/hostname
+sed -i /etc/hosts -e "s/raspberrypi/stratux/g"
 
 # Clean up source tree - we don't need it at runtime
-#rm -r /root/stratux
+rm -r /root/stratux
 
 
