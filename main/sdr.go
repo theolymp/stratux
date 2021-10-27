@@ -45,6 +45,9 @@ type ES Device
 // OGN is an 868 MHz device
 type OGN Device
 
+// AIS is an 161 MHz device
+type AIS Device
+
 // UATDev holds a 978 MHz dongle object
 var UATDev *UAT
 
@@ -54,7 +57,15 @@ var ESDev *ES
 // OGNDev holds an 868 MHz dongle object
 var OGNDev *OGN
 
+// AISDev holds a 162 MHz dongle object
+var AISDev *AIS
+
 type Dump1090TermMessage struct {
+	Text   string
+	Source string
+}
+
+type AISTermMessage struct {
 	Text   string
 	Source string
 }
@@ -81,7 +92,7 @@ func (e *ES) read() {
 		}
 	}
 
-	log.Println("Executed " + STRATUX_HOME + "/bin/dump1090 successfully...")
+	log.Println("Executed " + cmd.String() + " successfully...")
 
 	done := make(chan bool)
 
@@ -290,6 +301,92 @@ func (f *OGN) read() {
 	}
 }
 
+func (e *AIS) read() {
+	defer e.wg.Done()
+	log.Println("Entered AIS read() ...")
+	cmd := exec.Command(STRATUX_HOME + "/bin/rtl_ais", "-T", "-k", "-p", strconv.Itoa(e.ppm), "-d", strconv.Itoa(e.indexID))
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	err := cmd.Start()
+	if err != nil {
+		log.Printf("Error executing " + STRATUX_HOME + "/bin/rtl_ais: %s\n", err)
+		// don't return immediately, use the proper shutdown procedure
+		shutdownES = true
+		for {
+			select {
+			case <-e.closeCh:
+				return
+			default:
+				time.Sleep(1 * time.Second)
+			}
+		}
+	}
+
+	log.Println("Executed " + cmd.String() + " successfully...")
+
+	done := make(chan bool)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-e.closeCh:
+				log.Println("AIS read(): shutdown msg received, calling cmd.Process.Kill() ...")
+				err := cmd.Process.Kill()
+				if err == nil {
+					log.Println("kill successful...")
+				}
+				return
+			default:
+				time.Sleep(1 * time.Second)
+			}
+		}
+	}()
+
+	stdoutBuf := make([]byte, 1024)
+	stderrBuf := make([]byte, 1024)
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				n, err := stdout.Read(stdoutBuf)
+				if err == nil && n > 0 {
+					m := AISTermMessage{Text: string(stdoutBuf[:n]), Source: "stdout"}
+					logAISTermMessage(m)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				n, err := stderr.Read(stderrBuf)
+				if err == nil && n > 0 {
+					m := AISTermMessage{Text: string(stderrBuf[:n]), Source: "stderr"}
+					logAISTermMessage(m)
+				}
+			}
+		}
+	}()
+
+	cmd.Wait()
+
+	// we get here if A) the rvt_ais process died
+	// on its own or B) cmd.Process.Kill() was called
+	// from within the goroutine, either way close
+	// the "done" channel, which ensures we don't leak
+	// goroutines...
+	close(done)
+}
+
 func getPPM(serial string) int {
 	r, err := regexp.Compile("str?a?t?u?x:\\d+:?(-?\\d*)")
 	if err != nil {
@@ -318,6 +415,12 @@ func (e *ES) sdrConfig() (err error) {
 func (f *OGN) sdrConfig() (err error) {
 	f.ppm = getPPM(f.serial)
 	log.Printf("===== OGN Device Serial: %s PPM %d =====\n", f.serial, f.ppm)
+	return
+}
+
+func (f *AIS) sdrConfig() (err error) {
+	f.ppm = getPPM(f.serial)
+	log.Printf("===== AIS Device Serial: %s PPM %d =====\n", f.serial, f.ppm)
 	return
 }
 
@@ -472,6 +575,15 @@ func (f *OGN) writeID() error {
 	return f.dev.SetHwInfo(info)
 }
 
+func (f *AIS) writeID() error {
+	info, err := f.dev.GetHwInfo()
+	if err != nil {
+		return err
+	}
+	info.Serial = "stratux:162"
+	return f.dev.SetHwInfo(info)
+}
+
 func (u *UAT) shutdown() {
 	log.Println("Entered UAT shutdown() ...")
 	close(u.closeCh) // signal to shutdown
@@ -499,13 +611,21 @@ func (f *OGN) shutdown() {
 	log.Println("signal shutdown() complete ...")
 }
 
+func (f *AIS) shutdown() {
+	log.Println("Entered AIS shutdown() ...")
+	close(f.closeCh) // signal to shutdown
+	log.Println("signal shutdown(): calling f.wg.Wait() ...")
+	f.wg.Wait() // Wait for the goroutine to shutdown
+	log.Println("signal shutdown() complete ...")
+}
+
 var sdrShutdown bool
 
 func sdrKill() {
 	// Send signal to shutdown to sdrWatcher().
 	sdrShutdown = true
 	// Spin until all devices have been de-initialized.
-	for UATDev != nil || ESDev != nil || OGNDev != nil {
+	for UATDev != nil || ESDev != nil || OGNDev != nil || AISDev != nil {
 		time.Sleep(1 * time.Second)
 	}
 }
@@ -519,10 +639,12 @@ func reCompile(s string) *regexp.Regexp {
 type regexUAT regexp.Regexp
 type regexES regexp.Regexp
 type regexOGN regexp.Regexp
+type regexAIS regexp.Regexp
 
 var rUAT = (*regexUAT)(reCompile("str?a?t?u?x:978"))
 var rES = (*regexES)(reCompile("str?a?t?u?x:1090"))
 var rOGN = (*regexES)(reCompile("str?a?t?u?x:868"))
+var rAIS = (*regexAIS)(reCompile("str?a?t?u?x:162"))
 
 func (r *regexUAT) hasID(serial string) bool {
 	if r == nil {
@@ -541,6 +663,13 @@ func (r *regexES) hasID(serial string) bool {
 func (r *regexOGN) hasID(serial string) bool {
 	if r == nil {
 		return strings.HasPrefix(serial, "stratux:868")
+	}
+	return (*regexp.Regexp)(r).MatchString(serial)
+}
+
+func (r *regexAIS) hasID(serial string) bool {
+	if r == nil {
+		return strings.HasPrefix(serial, "stratux:162")
 	}
 	return (*regexp.Regexp)(r).MatchString(serial)
 }
@@ -590,7 +719,22 @@ func createOGNDev(id int, serial string, idSet bool) error {
 	return nil
 }
 
-func configDevices(count int, esEnabled, uatEnabled, ognEnabled bool) {
+func createAISDev(id int, serial string, idSet bool) error {
+	AISDev = &AIS{indexID: id, serial: serial}
+	if err := AISDev.sdrConfig(); err != nil {
+		log.Printf("AISDev.sdrConfig() failed: %s\n", err)
+		AISDev = nil
+		return err
+	}
+	AISDev.wg = &sync.WaitGroup{}
+	AISDev.idSet = idSet
+	AISDev.closeCh = make(chan int)
+	AISDev.wg.Add(1)
+	go AISDev.read()
+	return nil
+}
+
+func configDevices(count int, esEnabled, uatEnabled, ognEnabled, aisEnabled bool) {
 	// once the tagged dongles have been assigned, explicitly range over
 	// the remaining IDs and assign them to any anonymous dongles
 	unusedIDs := make(map[int]string)
@@ -610,6 +754,8 @@ func configDevices(count int, esEnabled, uatEnabled, ognEnabled bool) {
 				createESDev(i, s, true)
 			} else if ognEnabled && OGNDev == nil && rOGN.hasID(s) {
 				createOGNDev(i, s, true)
+			} else if aisEnabled && AISDev == nil && rAIS.hasID(s) {
+				createAISDev(i, s, true)
 			} else {
 				unusedIDs[i] = s
 			}
@@ -629,6 +775,8 @@ func configDevices(count int, esEnabled, uatEnabled, ognEnabled bool) {
 			createESDev(i, s, false)
 		} else if ognEnabled && OGNDev == nil {
 			createOGNDev(i, s, false)
+		} else if aisEnabled && AISDev == nil {
+			createAISDev(i, s, false)
 		}
 	}
 }
@@ -639,6 +787,7 @@ func configDevices(count int, esEnabled, uatEnabled, ognEnabled bool) {
 var shutdownES bool
 var shutdownUAT bool
 var shutdownOGN bool
+var shutdownAIS bool
 
 // Watch for config/device changes.
 func sdrWatcher() {
@@ -646,6 +795,7 @@ func sdrWatcher() {
 	prevUATEnabled := false
 	prevESEnabled := false
 	prevOGNEnabled := false
+	prevAISEnabled := false
 
 	// Get the system (RPi) uptime.
 	info := syscall.Sysinfo_t{}
@@ -677,6 +827,10 @@ func sdrWatcher() {
 				OGNDev.shutdown()
 				OGNDev = nil
 			}
+			if AISDev != nil {
+				AISDev.shutdown()
+				AISDev = nil
+			}
 			return
 		}
 
@@ -704,11 +858,19 @@ func sdrWatcher() {
 			}
 			shutdownOGN = false
 		}
+		if shutdownAIS {
+			if AISDev != nil {
+				AISDev.shutdown()
+				AISDev = nil
+			}
+			shutdownAIS = false
+		}
 
 		// capture current state
 		esEnabled := globalSettings.ES_Enabled
 		uatEnabled := globalSettings.UAT_Enabled
 		ognEnabled := globalSettings.OGN_Enabled
+		aisEnabled := globalSettings.AIS_Enabled
 		count := rtl.GetDeviceCount()
 		interfaceCount := count
 		if globalStatus.UATRadio_connected {
@@ -721,7 +883,7 @@ func sdrWatcher() {
 			count = 3
 		}
 
-		if interfaceCount == prevCount && prevESEnabled == esEnabled && prevUATEnabled == uatEnabled && prevOGNEnabled == ognEnabled {
+		if interfaceCount == prevCount && prevESEnabled == esEnabled && prevUATEnabled == uatEnabled && prevOGNEnabled == ognEnabled && prevAISEnabled == aisEnabled {
 			continue
 		}
 
@@ -738,24 +900,31 @@ func sdrWatcher() {
 			OGNDev.shutdown()
 			OGNDev = nil
 		}
-		configDevices(count, esEnabled, uatEnabled, ognEnabled)
+		if AISDev != nil {
+			AISDev.shutdown()
+			AISDev = nil
+		}
+		configDevices(count, esEnabled, uatEnabled, ognEnabled, aisEnabled)
 
 		prevCount = interfaceCount
 		prevUATEnabled = uatEnabled
 		prevESEnabled = esEnabled
 		prevOGNEnabled = ognEnabled
+		prevAISEnabled = aisEnabled
 
 		countEnabled := 0
 
 		if uatEnabled { countEnabled++ }
 		if esEnabled { countEnabled++ }
 		if ognEnabled { countEnabled++ }
+		if aisEnabled { countEnabled++ }
 		if countEnabled > interfaceCount {
 			// User enabled too many protocols. Show error..
 			used := make([]string, 0)
 			if UATDev != nil { used = append(used, "UAT") }
 			if ESDev != nil { used = append(used, "1090ES") }
 			if OGNDev != nil { used = append(used, "OGN") }
+			if AISDev != nil { used = append(used, "AIS") }
 			addSingleSystemErrorf("sdrconfig", "You have enabled more protocols than you have receivers for. " +
 				"You have %d receivers, but enabled %d protocols. Please disable %d of them for things to work correctly. For now we are only using %s.",
 				count, countEnabled, countEnabled - count, strings.Join(used, ", "))

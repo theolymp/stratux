@@ -66,6 +66,7 @@ const (
 	TRAFFIC_SOURCE_1090ES = 1
 	TRAFFIC_SOURCE_UAT    = 2
 	TRAFFIC_SOURCE_OGN    = 4
+	TRAFFIC_SOURCE_AIS    = 8
 	TARGET_TYPE_MODE_S    = 0
 	TARGET_TYPE_ADSB      = 1
 	TARGET_TYPE_ADSR      = 2
@@ -75,6 +76,7 @@ const (
 	// If we see a proper emitter category and NIC > 7, they'll be reassigned to TYPE_ADSR.
 	TARGET_TYPE_TISB_S = 3
 	TARGET_TYPE_TISB   = 4
+	TARGET_TYPE_AIS    = 5
 )
 
 type TrafficInfo struct {
@@ -82,6 +84,7 @@ type TrafficInfo struct {
 	Reg                 string    // Registration. Calculated from Icao_addr for civil aircraft of US registry.
 	Tail                string    // Callsign. Transmitted by aircraft.
 	Emitter_category    uint8     // Formatted using GDL90 standard, e.g. in a Mode ES report, A7 becomes 0x07, B0 becomes 0x08, etc.
+	SurfaceVehicleType	uint16    // Type of service vehicle (when Emitter_category==18) 0..255 is reserved for AIS vessels
 	OnGround            bool      // Air-ground status. On-ground is "true".
 	Addr_type           uint8     // UAT address qualifier. Used by GDL90 format, so translations for ES TIS-B/ADS-R are needed.
 	TargetType          uint8     // types decribed in const above
@@ -179,7 +182,12 @@ func convertMetersToFeet(meters float32) float32 {
 
 func cleanupOldEntries() {
 	for key, ti := range traffic {
-		if stratuxClock.Since(ti.Last_seen).Seconds() > 60 { // keep it in the database for up to 30 seconds, so we don't lose tail number, etc...
+		
+		if ti.Last_source != TRAFFIC_SOURCE_AIS && stratuxClock.Since(ti.Last_seen).Seconds() > 60 { // keep it in the database for up to 30 seconds, so we don't lose tail number, etc...
+			delete(traffic, key)
+		}
+
+		if ti.Last_source == TRAFFIC_SOURCE_AIS && stratuxClock.Since(ti.Last_seen).Seconds() > 60*15 { // keep it in the database for up to 15 minutes, so we don't lose tail number, etc...
 			delete(traffic, key)
 		}
 	}
@@ -1688,4 +1696,5 @@ func initTraffic() {
 	trafficMutex = &sync.Mutex{}
 	go esListen()
 	go ognListen()
+	go aisListen()
 }

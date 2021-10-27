@@ -1,8 +1,8 @@
 angular.module('appControllers').controller('StatusCtrl', StatusCtrl); // get the main module contollers set
-StatusCtrl.$inject = ['$rootScope', '$scope', '$state', '$http', '$interval']; // Inject my dependencies
+StatusCtrl.$inject = ['$rootScope', '$scope', '$state', '$http', '$interval', 'craftService']; // Inject my dependencies
 
 // create our controller function with all necessary logic
-function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
+function StatusCtrl($rootScope, $scope, $state, $http, $interval, craftService) {
 
 	$scope.$parent.helppage = 'plates/status-help.html';
 
@@ -53,6 +53,9 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 			$scope.OGN_messages_last_minute = status.OGN_messages_last_minute;
 			$scope.OGN_messages_max = status.OGN_messages_max;
 			$scope.OGN_connected = status.OGN_connected;
+			$scope.AIS_messages_last_minute = status.AIS_messages_last_minute;
+			$scope.AIS_messages_max = status.AIS_messages_max;
+			$scope.AIS_connected = status.AIS_connected;
 			$scope.GPS_satellites_locked = status.GPS_satellites_locked;
 			$scope.GPS_satellites_tracked = status.GPS_satellites_tracked;
 			$scope.GPS_satellites_seen = status.GPS_satellites_seen;
@@ -174,6 +177,11 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 		$scope.visible_es = true;
 		$scope.visible_gps = true;
 
+		$scope.esStyleColor = craftService.getTrafficSourceColor(1);
+		$scope.uatStyleColor = craftService.getTrafficSourceColor(2);
+		$scope.ognStyleColor = craftService.getTrafficSourceColor(4);
+		$scope.aisStyleColor = craftService.getTrafficSourceColor(5);
+
 		// Simple GET request example (note: responce is asynchronous)
 		$http.get(URL_SETTINGS_GET).
 		then(function (response) {
@@ -182,6 +190,7 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 			$scope.visible_uat = settings.UAT_Enabled;
 			$scope.visible_es = settings.ES_Enabled;
 			$scope.visible_ogn = settings.OGN_Enabled;
+			$scope.visible_ais = settings.AIS_Enabled;
 			$scope.visible_ping = settings.Ping_Enabled;
 			if (settings.Ping_Enabled) {
 				$scope.visible_uat = true;

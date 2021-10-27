@@ -1,16 +1,20 @@
 angular.module('appControllers').controller('TrafficCtrl', TrafficCtrl); // get the main module contollers set
-TrafficCtrl.$inject = ['$rootScope', '$scope', '$state', '$http', '$interval']; // Inject my dependencies
+TrafficCtrl.$inject = ['$rootScope', '$scope', '$state', '$http', '$interval', 'craftService']; // Inject my dependencies
 
-var cutoff = 59;   //cutoff value to remove targets out of the list, keep in sync with the value in traffic.go for cleanUpOldEntries, keep it just below cutoff value in traffic.go
-
+//cutoff value to remove targets out of the list, keep in sync with the value in traffic.go for cleanUpOldEntries, keep it just below cutoff value in traffic.go
 
 
 // create our controller function with all necessary logic
-function TrafficCtrl($rootScope, $scope, $state, $http, $interval) {
+function TrafficCtrl($rootScope, $scope, $state, $http, $interval, craftService) {
 
 	$scope.$parent.helppage = 'plates/traffic-help.html';
 	$scope.data_list = [];
 	$scope.data_list_invalid = [];
+
+	$scope.$parent.esStyleColor = craftService.getTrafficSourceColor(1);
+	$scope.$parent.uatStyleColor = craftService.getTrafficSourceColor(2);
+	$scope.$parent.ognStyleColor = craftService.getTrafficSourceColor(4);
+	$scope.$parent.aisStyleColor = craftService.getTrafficSourceColor(5);
 	
 	function utcTimeString(epoc) {
 		var time = "";
@@ -24,7 +28,7 @@ function TrafficCtrl($rootScope, $scope, $state, $http, $interval) {
 		time += ":" + (val < 10 ? "0" + val : "" + val);
 		time += "Z";
 		return time;
-	}
+	}	
 /*
 
 	function dmsString(val) {
@@ -49,67 +53,15 @@ function TrafficCtrl($rootScope, $scope, $state, $http, $interval) {
 				min < 10 ? "0" + min : min,
 				"' "].join('');
 	}
-	
+
 	function setAircraft(obj, new_traffic) {
 		new_traffic.icao_int = obj.Icao_addr;
-		new_traffic.targettype = obj.TargetType;
 		new_traffic.isStratux = obj.IsStratux;
 		new_traffic.signal = obj.SignalLevel;
+		new_traffic.Last_source = obj.Last_source; // 1=ES, 2=UAT, 4=OGN, 8=AIS
+		new_traffic.Emitter_category = obj.Emitter_category;
 	        //console.log('Emitter Category:' + obj.Emitter_category);
-		switch(obj.Emitter_category) {
-  			case 1:		// piston or up to 15500 lbs
-				new_traffic.category="Light";   
-    				break;
-  			case 2: 	// small up to 75500lbs
-				new_traffic.category="Small";   
-    				break;
-			case 3:		// up to 300000 lbs
-				new_traffic.category="Large";   
-    				break;
-			case 4:		// high vortex
-				new_traffic.category="VLarge";   
-    				break;
-			case 5:		// heavy aircraft  
-				new_traffic.category="Heavy";   
-    				break;
-			case 6:		// >5G and 400 kts, fighter
-				new_traffic.category="Fight";   
-    				break;
-  			case 7:		//Helicopter  according to GDL90
-				new_traffic.category="Helic";   
-    				break;
-  			case 9:		//glider
-				new_traffic.category="Glide";   
-    				break;
-			case 10:	//balloon
-				new_traffic.category="Ballo";   
-    				break;
-  			case 11:		//Skydiver
-				new_traffic.category="Parac";   
-    				break;
-  			case 12:	// ultralight
-				new_traffic.category="Ultrl";   
-    				break;
-			case 14:	// unmanned 
-				new_traffic.category="Drone";   
-    				break;
-			case 15:	// space aircraft
-				new_traffic.category="Space";   
-    				break;
-			case 17:	// emgn vehicle
-			case 18:	// surface vehicle 
-				new_traffic.category="Vehic";   
-    				break;
-			case 19:	// surface vehicle 
-				new_traffic.category="Obstc";   
-    				break;
-  			default:
-				new_traffic.category="----";   
-		}
-		new_traffic.addr_symb ='\u2708';    // undefined, use aircraft as default
-		if (new_traffic.targettype > 3) {
-			new_traffic.addr_symb ='\ud83d\udce1';
-		}
+		
 		new_traffic.icao = obj.Icao_addr.toString(16).toUpperCase();
 		new_traffic.tail = obj.Tail;
 		if (!new_traffic.tail || new_traffic.tail.trim().length == 0)
@@ -140,12 +92,21 @@ function TrafficCtrl($rootScope, $scope, $state, $http, $interval) {
 		new_traffic.vspeed = Math.round(obj.Vvel / 100) * 100
 		var timestamp = Date.parse(obj.Timestamp);
 		new_traffic.time = utcTimeString(timestamp);
-		new_traffic.age = obj.Age;
-		new_traffic.ageLastAlt = obj.AgeLastAlt;
-		new_traffic.src = obj.Last_source; // 1=ES, 2=UAT, 4=OGN
+		new_traffic.Age = obj.Age;
+		new_traffic.AgeLastAlt = obj.AgeLastAlt;
 		new_traffic.bearing = Math.round(obj.Bearing); // degrees true 
-		new_traffic.dist = (obj.Distance/1852); // nautical miles
+		new_traffic.dist = obj.Distance / 1852; // nautical miles
 		new_traffic.distEst = obj.DistanceEstimated / 1852;
+		new_traffic.trafficColor = craftService.getTransportColor(obj);
+		new_traffic.category = craftService.getCategory(obj);
+		if (new_traffic.TargetType ===  TARGET_TYPE_AIS) {
+			new_traffic.addr_symb = '\uD83D\uDEA2';
+		} else {
+			new_traffic.addr_symb ='\u2708';    // undefined, use aircraft as default
+			if (new_traffic.targettype > 3) {
+				new_traffic.addr_symb ='\ud83d\udce1';
+			}
+		}
 		// return new_aircraft;
 	}
 
@@ -272,24 +233,21 @@ function TrafficCtrl($rootScope, $scope, $state, $http, $interval) {
 	}, 500, 0, false);
 		
 
-
-
-
 	// perform cleanup every 10 seconds
 	var clearStaleTraffic = $interval(function () {
 		// remove stale aircraft = anything more than cutoff seconds without a position update
 
 		// Clean up "valid position" table.
 		for (var i = $scope.data_list.length; i > 0; i--) {
-			if ($scope.data_list[i - 1].age >= cutoff) {
+			if (craftService.isTrafficAged($scope.data_list[i - 1])) {
 				$scope.data_list.splice(i - 1, 1);
 			}
 		}
 
 		// Clean up "invalid position" table.
-		for (var i = $scope.data_list_invalid.length; i > 0; i--) {
-			if (($scope.data_list_invalid[i - 1].age >= cutoff) || ($scope.data_list_invalid[i - 1].ageLastAlt >= cutoff)) {
-				$scope.data_list_invalid.splice(i - 1, 1);
+		for (var i = $scope.data_list_invalid.length; i > 0; i--) {			
+			if (craftService.isTrafficAged($scope.data_list_invalid[i - 1]) || craftService.isTrafficAged2($scope.data_list_invalid[i - 1], 'AgeLastAlt')) {
+				$scope.data_list.splice(i - 1, 1);
 			}
 		}
 	}, (1000 * 10), 0, false);

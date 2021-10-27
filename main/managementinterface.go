@@ -346,6 +346,8 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 						globalSettings.ES_Enabled = val.(bool)
 					case "OGN_Enabled":
 						globalSettings.OGN_Enabled = val.(bool)
+					case "AIS_Enabled":
+						globalSettings.AIS_Enabled = val.(bool)
 					case "Ping_Enabled":
 						globalSettings.Ping_Enabled = val.(bool)
 					case "GPS_Enabled":
@@ -465,10 +467,13 @@ func handleSettingsSetRequest(w http.ResponseWriter, r *http.Request) {
 						setWiFiMode(int(val.(float64)))
 					case "WiFiDirectPin":
 						setWifiDirectPin(val.(string))
-					case "WiFiClientSSID":
-						setWifiClientSSID(val.(string))
-					case "WiFiClientPassword":
-						setWifiClientPassword(val.(string))
+					case "WiFiClientNetworks":
+						var networks = make([]wifiClientNetwork, 0)
+						for _, rawNetwork := range val.([]interface{}) {
+							network := rawNetwork.(map[string]interface{})
+							networks = append(networks, wifiClientNetwork{network["SSID"].(string), network["Password"].(string)})
+						}
+						setWifiClientNetworks(networks)
 					case "WiFiInternetPassThroughEnabled":
 						setWifiInternetPassthroughEnabled(val.(bool))
 					case "EstimateBearinglessDist":

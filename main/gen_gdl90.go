@@ -80,6 +80,7 @@ const (
 	MSGCLASS_UAT   = 0
 	MSGCLASS_ES    = 1
 	MSGCLASS_OGN   = 2
+	MSGCLASS_AIS   = 3
 
 	LON_LAT_RESOLUTION = float32(180.0 / 8388608.0)
 	TRACK_RESOLUTION   = float32(360.0 / 256.0)
@@ -848,6 +849,7 @@ func updateMessageStats() {
 	UAT_messages_last_minute := uint(0)
 	ES_messages_last_minute := uint(0)
 	OGN_messages_last_minute := uint(0)
+	AIS_messages_last_minute := uint(0)
 
 	// Clear out ADSBTowers stats.
 	for t, tinf := range ADSBTowers {
@@ -886,6 +888,8 @@ func updateMessageStats() {
 				ES_messages_last_minute++
 			} else if msgLog[i].MessageClass == MSGCLASS_OGN {
 				OGN_messages_last_minute++
+			} else if msgLog[i].MessageClass == MSGCLASS_AIS {
+				AIS_messages_last_minute++
 			}
 		}
 	}
@@ -893,6 +897,7 @@ func updateMessageStats() {
 	globalStatus.UAT_messages_last_minute = UAT_messages_last_minute
 	globalStatus.ES_messages_last_minute = ES_messages_last_minute
 	globalStatus.OGN_messages_last_minute = OGN_messages_last_minute
+	globalStatus.AIS_messages_last_minute = AIS_messages_last_minute
 
 	// Update "max messages/min" counters.
 	if globalStatus.UAT_messages_max < UAT_messages_last_minute {
@@ -903,6 +908,9 @@ func updateMessageStats() {
 	}
 	if globalStatus.OGN_messages_max < OGN_messages_last_minute {
 		globalStatus.OGN_messages_max = OGN_messages_last_minute
+	}
+	if globalStatus.AIS_messages_max < AIS_messages_last_minute {
+		globalStatus.AIS_messages_max = AIS_messages_last_minute
 	}
 
 	// Update average signal strength over last minute for all ADSB towers.
@@ -1154,6 +1162,7 @@ type settings struct {
 	UAT_Enabled          bool
 	ES_Enabled           bool
 	OGN_Enabled        bool
+	AIS_Enabled        bool
 	Ping_Enabled         bool
 	GPS_Enabled          bool
 	BMP_Sensor_Enabled   bool
@@ -1184,8 +1193,7 @@ type settings struct {
 	WiFiMode             int
 	WiFiDirectPin        string
 	WiFiIPAddress        string
-	WiFiClientSSID       string
-	WiFiClientPassword   string
+	WiFiClientNetworks   []wifiClientNetwork
 	WiFiInternetPassThroughEnabled bool
 
 	EstimateBearinglessDist bool
@@ -1213,9 +1221,12 @@ type status struct {
 	UAT_messages_max                           uint
 	ES_messages_last_minute                    uint
 	ES_messages_max                            uint
-	OGN_messages_last_minute                 uint
-	OGN_messages_max                         uint
-	OGN_connected                            bool
+	OGN_messages_last_minute                   uint
+	OGN_messages_max                           uint
+	OGN_connected                              bool
+	AIS_messages_last_minute                   uint
+	AIS_messages_max                           uint
+	AIS_connected                              bool
 	UAT_traffic_targets_tracking               uint16
 	ES_traffic_targets_tracking                uint16
 	Ping_connected                             bool
@@ -1288,6 +1299,7 @@ func defaultSettings() {
 	globalSettings.WiFiPassphrase = ""
 	globalSettings.WiFiSSID = "stratux"
 	globalSettings.WiFiSecurityEnabled = false
+	globalSettings.WiFiClientNetworks = make([]wifiClientNetwork, 0)
 
 	globalSettings.RadarLimits = 2000
 	globalSettings.RadarRange = 10

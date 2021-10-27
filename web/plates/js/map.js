@@ -1,10 +1,9 @@
 angular.module('appControllers').controller('MapCtrl', MapCtrl);           // get the main module contollers set
-MapCtrl.$inject = ['$rootScope', '$scope', '$state', '$http', '$interval'];  // Inject my dependencies
+MapCtrl.$inject = ['$rootScope', '$scope', '$state', '$http', '$interval', 'craftService'];  // Inject my dependencies
 
 
-function MapCtrl($rootScope, $scope, $state, $http, $interval) {
+function MapCtrl($rootScope, $scope, $state, $http, $interval, craftService) {
 	let TRAFFIC_MAX_AGE_SECONDS = 15;
-
 
 	$scope.$parent.helppage = 'plates/radar-help.html';
 
@@ -145,34 +144,27 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 		};
 	}
 
-	let colorCache = {};
-	function getColorForAircraft(aircraft) {
-		let key = 'traffic-style' + aircraft.Last_source + aircraft.TargetType;
-		if (colorCache[key])
-			return colorCache[key];
-
-		let dummyElem = document.createElement('div');
-		dummyElem.classList.add(key);
-		document.body.appendChild(dummyElem);
-		let style = window.getComputedStyle(dummyElem);
-		let color = style.getPropertyValue('background-color');
-		document.body.removeChild(dummyElem);
-		colorCache[key] = color;
-		return color;
-	}
-
 	function createPlaneSvg(aircraft) {
-		let color = getColorForAircraft(aircraft);
-
-		
-		let html = `
-			<svg height="30" width="30" viewBox="0 0 250 250" version="1.1" xmlns="http://www.w3.org/2000/svg" >
-				<path fill="${color}" stroke="white" stroke-width="5" d="M 247.51404,152.40266 139.05781,71.800946 c 0.80268,-12.451845 1.32473,-40.256266 0.85468,-45.417599 -3.94034,-43.266462 -31.23018,-24.6301193 -31.48335,-5.320367 -0.0693,5.281361 -1.01502,32.598388 -1.10471,50.836622 L 0.2842717,154.37562 0,180.19575 l 110.50058,-50.48239 3.99332,80.29163 -32.042567,22.93816 -0.203845,16.89693 42.271772,-11.59566 0.008,0.1395 42.71311,10.91879 -0.50929,-16.88213 -32.45374,-22.39903 2.61132,-80.35205 111.35995,48.50611 -0.73494,-25.77295 z" fill-rule="evenodd"/>
-			</svg>
+		let html = ``;
+		let color = craftService.getTransportColor(aircraft);	
+		if (aircraft.TargetType === TARGET_TYPE_AIS) {
+		    html = `
+				<svg width="11" height="25" xmlns="http://www.w3.org/2000/svg" version="1.1">
+					<g>
+					<title>Layer 1</title>
+					<path stroke="white" fill="${color}" d="m0.22305,11.928l0,12.99329l10.54714,0l0,-12.99329q0,-6.49665 -5.27357,-12.45192q-5.27357,6.49665 -5.27357,12.45192" fill-rule="evenodd" id="svg_1"/>
+					</g>		   
+				</svg>
 			`;
+		} else {
+			html = `
+				<svg height="30" width="30" viewBox="0 0 250 250" version="1.1" xmlns="http://www.w3.org/2000/svg" >
+					<path fill="${color}" stroke="white" stroke-width="5" d="M 247.51404,152.40266 139.05781,71.800946 c 0.80268,-12.451845 1.32473,-40.256266 0.85468,-45.417599 -3.94034,-43.266462 -31.23018,-24.6301193 -31.48335,-5.320367 -0.0693,5.281361 -1.01502,32.598388 -1.10471,50.836622 L 0.2842717,154.37562 0,180.19575 l 110.50058,-50.48239 3.99332,80.29163 -32.042567,22.93816 -0.203845,16.89693 42.271772,-11.59566 0.008,0.1395 42.71311,10.91879 -0.50929,-16.88213 -32.45374,-22.39903 2.61132,-80.35205 111.35995,48.50611 -0.73494,-25.77295 z" fill-rule="evenodd"/>
+				</svg>
+				`;
+		}
 
 		return html;
-
 	}
 
 	// Converts from degrees to radians.
@@ -244,23 +236,28 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 	}
 
 	function updateOpacity(aircraft) {
-		let opacity = 1.0 - (aircraft.Age / 15.0);
-		if (aircraft.Age <= 0)
-			opacity = 1;
-		if (aircraft.Age >= 15)
-			opacity = 0;
-		
-		return aircraft.marker.getStyle().getImage().setOpacity(opacity);
+		// For AIS sources we set full opacity for 30 minutes
+		let opacity
+		if (craftService.isTrafficAged(aircraft)) {
+			opacity = 0.0
+		} else if (aircraft.TargetType === TARGET_TYPE_AIS) {
+			opacity = 1.0;
+		} else { // For other sources it's based on seconds
+			opacity = 1.0 - (aircraft.Age / TRAFFIC_MAX_AGE_SECONDS);
+		}		
+		aircraft.marker.getStyle().getImage().setOpacity(opacity);
 	}
 
-	function updateAircraftText(aircraft) {
-		let text = '';
+	function updateVehicleText(aircraft) {
+		let text = [];
 		if (aircraft.Tail.length > 0)
-			text += aircraft.Tail + '\n';
-		text += aircraft.Alt + 'ft';
-		if (aircraft.Speed_valid)
-			text += '\n' + aircraft.Speed + 'kt'
-		aircraft.marker.getStyle().getText().setText(text);
+			text.push(aircraft.Tail);
+		if (aircraft.TargetType !== TARGET_TYPE_AIS) {
+			text.push(aircraft.Alt + 'ft');
+		}
+		if (aircraft.Speed_valid && aircraft.Speed>0.1)
+			text.push(aircraft.Speed + 'kt')
+		aircraft.marker.getStyle().getText().setText(text.join('\n'));
 	}
 
 	function updateAircraftTrail(aircraft) {
@@ -292,24 +289,25 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 		// 1 = non-icao, everything else = icao
 		if ((addrType1 == 1 && addrType2 == 1) || (addrType1 != 1 && addrType2 != 1))
 			return true;
+		
+		return false;
 	}
 
 	$scope.onMessage = function(msg) {
 		let aircraft = JSON.parse(msg.data);
-		if (!aircraft.Position_valid || aircraft.Age > TRAFFIC_MAX_AGE_SECONDS)
+		if (!aircraft.Position_valid || craftService.isTrafficAged(aircraft)) {
 			return;
-
+		}
 		aircraft.receivedTs = Date.now();
 		let prevColor = undefined;
 
 		// It is only a 'real' update, if the traffic's Age actually changes.
 		// If it doesn't, don't restart animation (only interpolated position).
-		let isActualUpdate = true;
 		let updateIndex = -1;
 		for (let i in $scope.aircraft) {
 			if (isSameAircraft($scope.aircraft[i].Icao_addr, $scope.aircraft[i].Addr_type, aircraft.Icao_addr, aircraft.Addr_type)) {
 				let oldAircraft = $scope.aircraft[i];
-				prevColor = getColorForAircraft(oldAircraft);
+				prevColor = craftService.getTransportColor(oldAircraft);
 				aircraft.marker = oldAircraft.marker;
 				aircraft.trail = oldAircraft.trail;
 				aircraft.posHistory = oldAircraft.posHistory;
@@ -320,15 +318,13 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 					aircraft.posHistory.push([aircraft.Lng, aircraft.Lat]);
 				}
 				
-				// At most 10 positions per aircraft
+				// At most 9.25km per aircraft
 				aircraft.posHistroy = clipPosHistory(aircraft, 9.25);
 
 				if (!aircraft.Speed_valid) {
 					// Compute fake track from last to current position
 					aircraft.Track = computeTrackFromPositions(aircraft);
 				}
-				isActualUpdate = (aircraft.Age < oldAircraft.Age);
-
 				$scope.aircraft[i] = aircraft;
 				updateIndex = i;
 			}
@@ -341,10 +337,15 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 		let acPosition = [aircraft.Lng, aircraft.Lat];
 
 		if (!aircraft.marker) {
+			let offsetY = 40;
+			if (aircraft.TargetType === TARGET_TYPE_AIS) {
+				offsetY = 20;
+			}
+
 			let planeStyle = new ol.style.Style({
 				text: new ol.style.Text({
 					text: '',
-					offsetY: 40,
+					offsetY: offsetY,
 					font: 'bold 1em sans-serif',
 					stroke: new ol.style.Stroke({color: 'white', width: 2}),
 				})
@@ -361,8 +362,8 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 			updateAircraftTrail(aircraft);
 		}
 
-		updateAircraftText(aircraft);
-		if (!prevColor || prevColor != getColorForAircraft(aircraft)) {
+		updateVehicleText(aircraft);
+		if (!prevColor || prevColor != craftService.getTransportColor(aircraft)) {
 			let imageStyle = new ol.style.Icon({
 				opacity: 1.0,
 				src: 'data:image/svg+xml;utf8,' + createPlaneSvg(aircraft),
@@ -392,7 +393,7 @@ function MapCtrl($rootScope, $scope, $state, $http, $interval) {
 		let now = Date.now();
 		for (let i = 0; i < $scope.aircraft.length; i++) {
 			let aircraft = $scope.aircraft[i];
-			if (aircraft.Age > TRAFFIC_MAX_AGE_SECONDS) {
+			if (craftService.isTrafficAged(aircraft)) {
 				if (aircraft.marker)
 					$scope.aircraftSymbols.removeFeature(aircraft.marker);
 				if (aircraft.trail)

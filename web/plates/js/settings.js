@@ -7,7 +7,7 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 
 	$scope.$parent.helppage = 'plates/settings-help.html';
 
-	var toggles = ['UAT_Enabled', 'ES_Enabled', 'OGN_Enabled', 'Ping_Enabled', 'GPS_Enabled', 'IMU_Sensor_Enabled',
+	var toggles = ['UAT_Enabled', 'ES_Enabled', 'OGN_Enabled', 'AIS_Enabled', 'Ping_Enabled', 'GPS_Enabled', 'IMU_Sensor_Enabled',
 		'BMP_Sensor_Enabled', 'DisplayTrafficSource', 'DEBUG', 'ReplayLog', 'AHRSLog', 'PersistentLogging', 'GDL90MSLAlt_Enabled', 'EstimateBearinglessDist', 'DarkMode'];
 
 	var settings = {};
@@ -42,6 +42,7 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 		$scope.UAT_Enabled = settings.UAT_Enabled;
 		$scope.ES_Enabled = settings.ES_Enabled;
 		$scope.OGN_Enabled = settings.OGN_Enabled;
+		$scope.AIS_Enabled = settings.AIS_Enabled;
 		$scope.Ping_Enabled = settings.Ping_Enabled;
 		$scope.GPS_Enabled = settings.GPS_Enabled;
 
@@ -72,8 +73,7 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 		$scope.WiFiMode = settings.WiFiMode.toString();
 		$scope.WiFiDirectPin = settings.WiFiDirectPin;
 
-		$scope.WiFiClientSSID = settings.WiFiClientSSID;
-		$scope.WiFiClientPassword = settings.WiFiClientPassword;
+		$scope.WiFiClientNetworks = settings.WiFiClientNetworks;
 		$scope.WiFiInternetPassThroughEnabled = settings.WiFiInternetPassThroughEnabled;
 
         $scope.Channels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -324,6 +324,22 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 		});
     };
 
+    $scope.addWiFiClientNetwork = function () {
+        $scope.WiFiClientNetworks.push({
+            SSID: '',
+            Password: ''
+        });
+		$scope.$apply();
+    };
+
+    $scope.removeWiFiClientNetwork = function (Network) {
+        var idx = $scope.WiFiClientNetworks.indexOf(Network);
+        if (idx >= 0) {
+            $scope.WiFiClientNetworks.splice(idx, 1);
+        }
+		$scope.$apply();
+    };
+
     $scope.updateWiFi = function(action) {
         $scope.WiFiErrors = {
             'WiFiSSID': '',
@@ -358,8 +374,7 @@ function SettingsCtrl($rootScope, $scope, $state, $location, $window, $http) {
 				"WiFiIPAddress" : $scope.WiFiIPAddress,
 				"WiFiMode" : parseInt($scope.WiFiMode),
 				"WiFiDirectPin": $scope.WiFiDirectPin,
-				"WiFiClientSSID": $scope.WiFiClientSSID,
-				"WiFiClientPassword": $scope.WiFiClientPassword,
+				"WiFiClientNetworks": $scope.WiFiClientNetworks,
 				"WiFiInternetPassThroughEnabled": $scope.WiFiInternetPassThroughEnabled
             };
 
