@@ -314,7 +314,7 @@ func initGPSSerial() bool {
 			}
 			// ublox 9
 			writeUblox9ConfigCommands(p)		
-		} else if (globalStatus.GPS_detected_type == GPS_TYPE_UBX8) || (globalStatus.GPS_detected_type == GPS_TYPE_UART) { // assume that any GPS connected to serial GPIO is ublox8 (RY835/6AI)
+		} else if globalStatus.GPS_detected_type == GPS_TYPE_UBX8 {
 			if globalSettings.DEBUG {
 				log.Printf("ublox 8 detected\n")
 			}
