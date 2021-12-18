@@ -250,6 +250,7 @@ func initGPSSerial() bool {
  	} else if _, err := os.Stat("/dev/ttyAMA0"); err == nil { // ttyAMA0 is PL011 UART (GPIO pins 8 and 10) on all RPi.
 		device = "/dev/ttyAMA0"
 		globalStatus.GPS_detected_type = GPS_TYPE_UART
+		baudrates = []int{115200, 38400, 9600}
 	} else {
 		if globalSettings.DEBUG {
 			log.Printf("No GPS device found.\n")
@@ -289,6 +290,12 @@ func initGPSSerial() bool {
 		if globalSettings.DEBUG {
 			log.Printf("Finished writing SiRF GPS config to %s. Opening port to test connection.\n", device)
 		}
+	} else if globalStatus.GPS_detected_type == GPS_TYPE_UART {
+		// UBX-CFG-VALSET for u-blox M10S
+		// RAM Layer configuration message
+		// NMEA 4.0, NMEA extended svnumbering, dynamic model 7, AssistNow Autonomous, GPS+GAL+BDS+SBAS, 10Hz update rate, disable GLL
+		payload := []byte{0xB5, 0x62, 0x06, 0x8A, 0x28, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0x21, 0x00, 0x11, 0x20, 0x07, 0x01, 0x00, 0x21, 0x30, 0x64, 0x00, 0x22, 0x00, 0x31, 0x10, 0x01, 0xCA, 0x00, 0x91, 0x20, 0x00, 0x01, 0x00, 0x93, 0x20, 0x28, 0x07, 0x00, 0x93, 0x20, 0x01, 0x74, 0xCE}
+		p.Write(payload)
 	} else if globalStatus.GPS_detected_type == GPS_TYPE_UBX6 || globalStatus.GPS_detected_type == GPS_TYPE_UBX7 ||
 	          globalStatus.GPS_detected_type == GPS_TYPE_UBX8 || globalStatus.GPS_detected_type == GPS_TYPE_UBX9 {
 
