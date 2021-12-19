@@ -775,16 +775,19 @@ func sendAllOwnshipInfo() {
 	sendGDL90(makeStratuxHeartbeat(), time.Second, 0)
 	sendGDL90(makeStratuxStatus(), time.Second, 0)
 	sendGDL90(makeFFIDMessage(), time.Second, 0)
-	makeOwnshipReport()
+	//makeOwnshipReport()
 	makeOwnshipGeometricAltitudeReport()
 }
 
 func heartBeatSender() {
-	timer := time.NewTicker(1 * time.Second)
+	timer := time.NewTicker(200 * time.Millisecond)
+	timerOwnship := time.NewTicker(200 * time.Millisecond)
 	timerMessageStats := time.NewTicker(2 * time.Second)
 	ledBlinking := false
 	for {
 		select {
+		case <-timerOwnship.C:
+			makeOwnshipReport()
 		case <-timer.C:
 			// Green LED - always on during normal operation.
 			//  Blinking when there is a critical system error (and Stratux is still running).
