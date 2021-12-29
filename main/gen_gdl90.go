@@ -477,6 +477,23 @@ func makeOwnshipGeometricAltitudeReport() bool {
 
 /*
 
+	Stratus "ID Message".
+
+	Emulates a Stratus 3 Status Message for Garmin Pilot
+
+*/
+func makeStratusStatus() []byte {
+	msg := make([]byte, 34)
+	msg[0] = 0x69 // Message type "Stratus 3".
+	msg[1] = 0    // ID message identifier.
+	msg[2] = 1    // Message version.
+	copy(msg[3:], fmt.Sprintf("%d/%d/%d sats", mySituation.GPSSatellites, mySituation.GPSSatellitesSeen, mySituation.GPSSatellitesTracked))
+	copy(msg[19:], fmt.Sprintf("%.02f m", mySituation.GPSHorizontalAccuracy))
+	return prepareMessage(msg)
+}
+
+/*
+
 	"SX" Stratux GDL90 message.
 	http://hiltonsoftware.com/stratux/ for latest version (currently using V104)
 
@@ -774,13 +791,13 @@ func sendAllOwnshipInfo() {
 	sendGDL90(makeHeartbeat(), time.Second, -20) // Highest priority, always needs to be send because we use it to detect when a client becomes available
 	sendGDL90(makeStratuxHeartbeat(), time.Second, 0)
 	sendGDL90(makeStratuxStatus(), time.Second, 0)
+	sendGDL90(makeStratusStatus(), time.Second, 0)
 	sendGDL90(makeFFIDMessage(), time.Second, 0)
-	//makeOwnshipReport()
 	makeOwnshipGeometricAltitudeReport()
 }
 
 func heartBeatSender() {
-	timer := time.NewTicker(200 * time.Millisecond)
+	timer := time.NewTicker(500 * time.Millisecond)
 	timerOwnship := time.NewTicker(200 * time.Millisecond)
 	timerMessageStats := time.NewTicker(2 * time.Second)
 	ledBlinking := false
