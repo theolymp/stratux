@@ -498,6 +498,7 @@ func writeUblox9ConfigCommands(p *serial.Port) {
 }
 
 func writeUbloxGenericCommands(navrate uint16, p *serial.Port) {
+	/*
 	// UBX-CFG-TP5 (turn off "time pulse" which usually drives the GPS LED)
 	tp5 := make([]byte, 32)
 	tp5[1] = 0x01 // version for u-blox M8 protocol versions > 15
@@ -510,6 +511,7 @@ func writeUbloxGenericCommands(navrate uint16, p *serial.Port) {
 	tp5[14] = 0x0F
 	tp5[28] = 0x77
 	p.Write(makeUBXCFG(0x06, 0x31, 32, tp5))
+	*/
 
 	// UBX-CFG-NMEA (change NMEA protocol version to 4.0 extended)
 	p.Write(makeUBXCFG(0x06, 0x17, 20, []byte{0x00, 0x40, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}))
