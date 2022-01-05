@@ -564,7 +564,7 @@ func writeUbloxGenericCommands(navrate uint16, p *serial.Port) {
 
 	// UBX-CFG-CFG (save configuration)       |      clearMask     |  |     saveMask       |  |     loadMask       |  deviceMask
 	//p.Write(makeUBXCFG(0x06, 0x09, 13, []byte{0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03}))
-	time.Sleep(1000* time.Millisecond)
+	//time.Sleep(1000* time.Millisecond)
 
 }
 
