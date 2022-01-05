@@ -23,15 +23,8 @@ fi
 #
 /usr/sbin/logrotate /etc/logrotate.conf
 
-# AssistNow Online script for ublox GPS
-# replace <myToken> with your actual ublox Token,
-# select script version according to ublox chip model
-# only recommended with ethernet connection
-#(sleep 60; python3 /root/ublox-agps/u-blox_agps_legacy.py -t <myToken> -d /dev/ublox5)
-#(sleep 60; python3 /root/ublox-agps/u-blox_agps_legacy.py -t <myToken> -d /dev/ublox6)
-#(sleep 60; python3 /root/ublox-agps/u-blox_agps_legacy.py -t <myToken> -d /dev/ublox7)
-#(sleep 60; python3 /root/ublox-agps/u-blox_agps.py -t <myToken> -d /dev/ublox8)
-#(sleep 60; python3 /root/ublox-agps/u-blox_agps.py -t <myToken> -d /dev/ublox9)
-#(sleep 60; python3 /root/ublox-agps/u-blox_agps.py -t <myToken> -d /dev/ttyUSB0)
+
+# Disabled for now as it is unamintained and doesn't run correctly with python2 deprecation
+# /usr/bin/stratux-screen.py start
 
 exit 0
