@@ -24,3 +24,7 @@ dtparam=act_led_activelow=off
 #arm_freq=900
 
 arm_64bit=1
+
+init_uart_baud=115200
+disable_poe_fan=1
+disable_splash=1
