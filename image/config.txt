@@ -25,6 +25,14 @@ dtparam=act_led_activelow=off
 
 arm_64bit=1
 
+# set UART baud rate
 init_uart_baud=115200
+
+# disables control of a PoE HAT fan through I2C (on pins ID_SD & ID_SC)
 disable_poe_fan=1
+
+# rainbow splash screen will not be shown on boot
 disable_splash=1
+
+# allow the default turbo-mode clock to be increased from 1.5GHz to 1.8GHz on all Pi 400s and newer revisions of the Pi 4B
+arm_boost=1
