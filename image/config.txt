@@ -34,5 +34,6 @@ disable_poe_fan=1
 # rainbow splash screen will not be shown on boot
 disable_splash=1
 
-# allow the default turbo-mode clock to be increased from 1.5GHz to 1.8GHz on all Pi 400s and newer revisions of the Pi 4B
+[pi4]
+# Run as fast as firmware / board allows
 arm_boost=1
