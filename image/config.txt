@@ -37,3 +37,5 @@ disable_splash=1
 [pi4]
 # Run as fast as firmware / board allows
 arm_boost=1
+
+[all]
