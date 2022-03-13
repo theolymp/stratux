@@ -315,12 +315,9 @@ func initGPSSerial() bool {
 		// gpsattitude too much --  without WAAS corrections, the algorithm could get jumpy at higher
 		// sampling rates.
 
-		// load and save default configuration    |      clearMask     |  |     saveMask       |  |     loadMask       |  deviceMask
+		// load default configuration             |      clearMask     |  |     saveMask       |  |     loadMask       |  deviceMask
 		p.Write(makeUBXCFG(0x06, 0x09, 13, []byte{0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x03}))
 		time.Sleep(100* time.Millisecond)
-		p.Write(makeUBXCFG(0x06, 0x09, 13, []byte{0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03}))
-		time.Sleep(100* time.Millisecond)
-
 
 		if globalStatus.GPS_detected_type == GPS_TYPE_UBX9 {
 			if globalSettings.DEBUG {
@@ -548,6 +545,8 @@ func writeUbloxGenericCommands(navrate uint16, p *serial.Port) {
 	} else if navrate == 1 {
 		p.Write(makeUBXCFG(0x06, 0x08, 6, []byte{0xE8, 0x03, 0x01, 0x00, 0x01, 0x00})) // 1000ms & 1 cycle -> 1Hz (UBX-CFG-RATE payload bytes: little endian!)
 	}
+
+
 }
 
 
