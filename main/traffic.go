@@ -193,6 +193,19 @@ func cleanupOldEntries() {
 	}
 }
 
+
+func removeTarget(id uint32) {
+	trafficMutex.Lock()
+	defer trafficMutex.Unlock()
+	if val, ok := traffic[id]; ok {
+		// Make sure the web interface times it out..
+		val.Age = 60
+		val.Position_valid = false
+		registerTrafficUpdate(val)
+		delete(traffic, id)
+	}
+}
+
 // Checks if the given TrafficInfo is our ownship. As the user can specify multiple ownship
 // hex codes, this is able to smartly identify if it really is our ownship.
 // If the ti is very close and at same altitude, it is considered to be us
@@ -202,7 +215,8 @@ func isOwnshipTrafficInfo(ti TrafficInfo) (isOwnshipInfo bool, shouldIgnore bool
 	
 	if (globalStatus.GPS_detected_type & 0x0f) == GPS_TYPE_OGNTRACKER {
 		ognTrackerCodeInt, _ := strconv.ParseUint(globalSettings.OGNAddr, 16, 32)
-		if uint32(ognTrackerCodeInt) == ti.Icao_addr {
+		prevTrackerCodeInt, _ := strconv.ParseUint(globalStatus.OGNPrevRandomAddr, 16, 32)
+		if uint32(ognTrackerCodeInt) == ti.Icao_addr || uint32(prevTrackerCodeInt) == ti.Icao_addr {
 			isOwnshipInfo = !isGPSValid() // only use OGN tracker as ownship position if we are not equipped with a GPS..
 			shouldIgnore = true
 			return
