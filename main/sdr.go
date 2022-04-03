@@ -208,7 +208,6 @@ func (f *OGN) read() {
 	}
 
 	cmd := exec.Command(STRATUX_HOME + "/bin/ogn-rx-eu", "-d", strconv.Itoa(f.indexID), "-p", strconv.Itoa(f.ppm), "-L/var/log/")
-//	cmd := exec.Command(STRATUX_HOME + "/bin/ogn-rx-eu", "-g 480", "-d", strconv.Itoa(f.indexID), "-p", strconv.Itoa(f.ppm), "-L/var/log/") // fixed gain instead of autogain
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	autoRestart := true // automatically restart crashing child process
