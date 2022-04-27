@@ -3,7 +3,7 @@ ifeq "$(CIRCLECI)" "true"
 	BUILDINFO=
 	PLATFORMDEPENDENT=
 else
-	LFLAGS=-X main.stratuxVersion=`git describe --tags --abbrev=0` -X main.stratuxBuild=`git log -n 1 --pretty=%H`  
+	LFLAGS=-X main.stratuxVersion="v1.6r1-eu027-vp" -X main.stratuxBuild=`git log -n 1 --pretty=%H`  
 	BUILDINFO=-ldflags "$(LFLAGS)"
 	BUILDINFO_STATIC=-ldflags "-extldflags -static $(LFLAGS)"
 	PLATFORMDEPENDENT=fancontrol
